@@ -42,7 +42,8 @@ std::ostream& operator<<(std::ostream& os, const json<T>&) {
 }
 
 template <
-    typename handler_t, 
+    typename handler_t,
+    typename config_t,
     typename request_body_t = std::string, 
     typename query_params_t = std::string, 
     typename response_body_t = std::string, 
@@ -53,19 +54,19 @@ struct http_handler {
     using handler_type = handler_t;
 
     template <typename new_request_body_t>
-    using with_request_body = http_handler<handler_t, new_request_body_t, query_params_t, response_body_t, description, wanted_global_state_t>;
+    using with_request_body = http_handler<handler_t, config_t, new_request_body_t, query_params_t, response_body_t, description, wanted_global_state_t>;
 
     template <typename new_query_t>
-    using with_request_query = http_handler<handler_t, request_body_t, new_query_t, response_body_t, description, wanted_global_state_t>;
+    using with_request_query = http_handler<handler_t, config_t, request_body_t, new_query_t, response_body_t, description, wanted_global_state_t>;
 
     template <typename new_response_body_t>
-    using with_response_body = http_handler<handler_t, request_body_t, query_params_t, new_response_body_t, description, wanted_global_state_t>;
+    using with_response_body = http_handler<handler_t, config_t, request_body_t, query_params_t, new_response_body_t, description, wanted_global_state_t>;
 
     template <label_literal new_description>
-    using with_description = http_handler<handler_t, request_body_t, query_params_t, response_body_t, new_description, wanted_global_state_t>;
+    using with_description = http_handler<handler_t, config_t, request_body_t, query_params_t, response_body_t, new_description, wanted_global_state_t>;
 
     template <typename ... wanted_global_state_ts>
-    using with_global_state = http_handler<handler_t, request_body_t, query_params_t, response_body_t, description, std::tuple<wanted_global_state_ts ...>>;
+    using with_global_state = http_handler<handler_t, config_t, request_body_t, query_params_t, response_body_t, description, std::tuple<wanted_global_state_ts ...>>;
 
     using request_t = request<request_body_t, query_params_t>;
     using response_t = response<response_body_t>;
@@ -73,10 +74,19 @@ struct http_handler {
     using references_to_wanted_global_state_t = tuple_of_references_t<wanted_global_state_t>;
 
     references_to_wanted_global_state_t global_state;
+    const config_t& config;
 
-    http_handler(references_to_wanted_global_state_t global_state)
+    http_handler() = delete;
+
+    http_handler(references_to_wanted_global_state_t global_state, const config_t& config)
         : global_state(global_state)
-    {}
+        , config(config)
+    {
+        FHTTP_LOG(INFO) << typeid(config_t).name();
+        FHTTP_LOG(INFO) << typeid(config).name();
+        FHTTP_LOG(INFO) << typeid(references_to_wanted_global_state_t).name();
+        FHTTP_LOG(INFO) << typeid(global_state).name();
+    }
 
     void handle(const request_t&, response_t&)  {}
 
@@ -90,8 +100,8 @@ struct route {
     static constexpr const char* path_value = path.c_str();
     static constexpr method method_value = method_;
 
-    template <typename global_data_t>
-    constexpr bool handle_request(const request<std::string>& req, response<std::string>& resp, global_data_t& global_data) const {
+    template <typename global_data_t, typename config_t>
+    constexpr bool handle_request(const request<std::string>& req, response<std::string>& resp, global_data_t& global_data, const config_t& config) const {
         if (not matches(req.path, req.method)) {
             return false;
         }
@@ -101,7 +111,15 @@ struct route {
             typename handler_type::references_to_wanted_global_state_t
         >(global_data);
 
-        handler_type handler {filtered_global_state_refs};
+        FHTTP_LOG(INFO) << typeid(config_t).name();
+        FHTTP_LOG(INFO) << typeid(config).name();
+        FHTTP_LOG(INFO) << typeid(this).name();
+        FHTTP_LOG(INFO) << typeid(handler_type).name();
+
+
+        // handler_type handler(filtered_global_state_refs, config);
+        handler_type handler ({filtered_global_state_refs, config});
+        // auto handler = std::make_unique<handler_type>(filtered_global_state_refs, config);
         typename handler_type::response_t converted_response {};
         const auto converted_request = convert_request<
             typename handler_type::request_t::body_type,
@@ -133,20 +151,20 @@ template <typename route_t, typename ... Ts>
 struct view<route_t, Ts...> : public view<Ts...> {
     route_t route_instance;
 
-    template <typename global_data_t>
-    bool handle_request(const request<std::string>& req, response<std::string>& resp, global_data_t& global_data) const {
-        if (route_instance.handle_request(req, resp, global_data)) {
+    template <typename global_data_t, typename config_t>
+    bool handle_request(const request<std::string>& req, response<std::string>& resp, global_data_t& global_data, const config_t& config) const {
+        if (route_instance.handle_request(req, resp, global_data, config)) {
             return true;
         }
 
-        return view<Ts...>::handle_request(req, resp, global_data);
+        return view<Ts...>::handle_request(req, resp, global_data, config);
     }
 };
 
 template <>
 struct view<> {
-    template <typename global_data_t>
-    bool handle_request(const request<std::string>&, response<std::string>&, global_data_t&) const {
+    template <typename global_data_t, typename config_t>
+    bool handle_request(const request<std::string>&, response<std::string>&, global_data_t&, const config_t&) const {
         return false;
     }
 };
@@ -298,8 +316,9 @@ auto create_tuple_from_types(const config_t& config) {
     return create_tuple_from_types<Tuple, config_t>(config, std::make_index_sequence<N>{});
 }
 
-template <typename view_t, typename global_state_tuple_t = std::tuple<>, typename thread_local_state_tuple_t = std::tuple<>>
+template <typename view_t, typename config_t = none_config, typename global_state_tuple_t = std::tuple<>, typename thread_local_state_tuple_t = std::tuple<>>
 struct server {
+    const config_t& config { };
     boost::asio::io_service io_service;
     boost::asio::ip::tcp::acceptor acceptor;
     boost::thread_group threadpool;
@@ -309,15 +328,19 @@ struct server {
     std::optional<global_state_tuple_t> global_state { };
 
     template <typename ... global_state_ts>
-    using with_global_state = server<view_t, std::tuple<global_state_ts ...>, thread_local_state_tuple_t>;
+    using with_global_state = server<view_t, config_t, std::tuple<global_state_ts ...>, thread_local_state_tuple_t>;
 
     template <typename ... thread_local_state_ts>
-    using with_thread_local_state = server<view_t, global_state_tuple_t, std::tuple<thread_local_state_ts ...>>;
+    using with_thread_local_state = server<view_t, config_t, global_state_tuple_t, std::tuple<thread_local_state_ts ...>>;
 
-    server(const std::string& host, const std::string& port) : 
+    template <typename new_config_t>
+    using with_config = server<view_t, new_config_t, global_state_tuple_t, thread_local_state_tuple_t>;
+
+    server(const std::string& host, const std::string& port, const config_t& config = config_t { }) : 
+        config { config },
         acceptor { io_service },
         connection_instance { std::make_shared<connection>(io_service, [this] (const request<std::string>& req, response<std::string>& resp) {
-            if (not view_instance.handle_request(req, resp, unwrap_ref(global_state))) {
+            if (not view_instance.handle_request(req, resp, unwrap_ref(global_state), this->config)) {
                 resp.status_code = 404;
                 resp.body = "Not found";
                 std::cout << "No handler found for path: " << req.path << std::endl;
@@ -339,7 +362,7 @@ struct server {
 
     void initialize_global_state() {
         // initialize each part of global_state_tuple_t using the create_state templated function
-        global_state = { create_tuple_from_types<global_state_tuple_t, none_config>({}) };
+        global_state = { create_tuple_from_types<global_state_tuple_t, config_t>(config) };
 
     }
 
@@ -363,7 +386,7 @@ struct server {
             connection_instance->start();
         }
         connection_instance = std::make_shared<connection>(io_service, [this] (const request<std::string>& req, response<std::string>& resp) {
-            return view_instance.handle_request(req, resp, unwrap_ref(global_state));
+            return view_instance.handle_request(req, resp, unwrap_ref(global_state), this->config);
         });
         start_accept();
     }

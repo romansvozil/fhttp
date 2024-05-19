@@ -45,45 +45,58 @@ struct person_entity: public fhttp::datalib::data_pack<name, age, height, custom
 
 namespace example_states {
 
-struct thread_safe_account_manager {
-    int created_accounts = 0;
+struct fake_redis_manager {
+    std::unordered_map<std::string, std::string> cache;
 
-    std::string get_account_name(const std::string&) {
-        return "account name";
+    std::optional<std::string> get(const std::string& key) {
+        if (cache.find(key) == cache.end()) {
+            return std::nullopt;
+        }
+        return cache[key];
     }
 
-    int create_account() {
-        return ++created_accounts;
-    }
-
-    int delete_account(const std::string&) {
-        return --created_accounts;
-    }
-
-    int get_account_count() {
-        return created_accounts;
+    void set(const std::string& key, const std::string& value) {
+        cache[key] = value;
     }
 };
 
 }
 
+/// @brief  Example of configuration for the server
+struct server_config {
+    std::string mysql_connection_string;
+    int mysql_timeout;
+
+    std::string redis_connection_string;
+    int redis_timeout;
+};
+
 /// @brief Example of creating a state for the server
 namespace fhttp {
     template <>
-    std::optional<example_states::thread_safe_account_manager> create_state(const fhttp::none_config&) {
-        FHTTP_LOG(INFO) << "Creating state for thread_safe_account_manager";
-        return example_states::thread_safe_account_manager {};
+    std::optional<example_states::fake_redis_manager> create_state(const server_config& config) {
+        FHTTP_LOG(INFO) << "Creating state for fake_redis_manager";
+        
+        if (config.redis_connection_string.empty()) {
+            return std::nullopt;
+        }
+
+        return example_states::fake_redis_manager {};
     }
 }
 
 namespace example_views {
 
-struct profile_get_handler: public fhttp::http_handler<profile_get_handler>
+/// @brief Create base of our handlers with the server configuration
+template <typename parent_handler_t>
+struct base_handler: fhttp::http_handler<parent_handler_t, server_config> {};
+
+struct profile_get_handler: public base_handler<profile_get_handler>
     ::with_request_body<fhttp::json<request_json_params>>
     ::with_request_query<query_params>
     ::with_response_body<std::string>
     ::with_description<"Get profile">
-    ::with_global_state<example_states::thread_safe_account_manager>
+    ::with_global_state<example_states::fake_redis_manager>
  {
     void handle(const fhttp::request<fhttp::json<request_json_params>, query_params>&, fhttp::response<std::string>& response) {
         // std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -94,28 +107,25 @@ struct profile_get_handler: public fhttp::http_handler<profile_get_handler>
     }
 };
 
-struct echo_handler: public fhttp::http_handler<echo_handler> {
-    using request_t = typename echo_handler::request_t;
-    using response_t = typename echo_handler::response_t;
-
-    void handle(const request_t& request, response_t& response) {
+struct echo_handler: public base_handler<echo_handler>
+    ::with_request_body<std::string>
+    ::with_request_query<query_params>
+    ::with_response_body<std::string>
+    ::with_global_state<example_states::fake_redis_manager>
+    ::with_description<"Get profile">
+{
+    void handle(const auto& request, auto& response) {
         response.body = request.body;
     }
 };
 
-using profile_post_handler = profile_get_handler;
-using profile_get_by_id_handler = profile_get_handler;
-
 
 struct profile_view: public fhttp::view<
     fhttp::route<"/echo", fhttp::method::post, echo_handler>,
-    fhttp::route<"/profile", fhttp::method::get, profile_get_handler>,
-    fhttp::route<"/profile", fhttp::method::post, profile_post_handler>,
-    fhttp::route<"/profile/:id", fhttp::method::get, profile_get_by_id_handler>
+    fhttp::route<"/profile", fhttp::method::get, profile_get_handler>
 > { };
 
 }
-
 
 int main() {
 
@@ -149,9 +159,16 @@ int main() {
 
     FHTTP_LOG(INFO) << "Running HTTP server...";
     
+    // Initialize the configuration
+    server_config config {
+        "mysql://localhost:3306", 10,
+        "redis://localhost:6379", 5
+    };
+
     fhttp::server<example_views::profile_view>
-        ::with_global_state<example_states::thread_safe_account_manager>
-        server { "127.0.0.1", std::to_string(11111) };
+        ::with_global_state<example_states::fake_redis_manager>
+        ::with_config<server_config>
+        server { "127.0.0.1", std::to_string(11111), config };
 
     server.start(128*4);
 
