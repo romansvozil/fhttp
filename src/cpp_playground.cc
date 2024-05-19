@@ -43,6 +43,39 @@ struct person_entity: public fhttp::datalib::data_pack<name, age, height, custom
 
 }
 
+namespace example_states {
+
+struct thread_safe_account_manager {
+    int created_accounts = 0;
+
+    std::string get_account_name(const std::string&) {
+        return "account name";
+    }
+
+    int create_account() {
+        return ++created_accounts;
+    }
+
+    int delete_account(const std::string&) {
+        return --created_accounts;
+    }
+
+    int get_account_count() {
+        return created_accounts;
+    }
+};
+
+}
+
+/// @brief Example of creating a state for the server
+namespace fhttp {
+    template <>
+    std::optional<example_states::thread_safe_account_manager> create_state(const fhttp::none_config&) {
+        FHTTP_LOG(INFO) << "Creating state for thread_safe_account_manager";
+        return example_states::thread_safe_account_manager {};
+    }
+}
+
 namespace example_views {
 
 struct profile_get_handler: public fhttp::http_handler<profile_get_handler>
@@ -50,12 +83,13 @@ struct profile_get_handler: public fhttp::http_handler<profile_get_handler>
     ::with_request_query<query_params>
     ::with_response_body<std::string>
     ::with_description<"Get profile">
+    ::with_global_state<example_states::thread_safe_account_manager>
  {
-    using request_t = typename profile_get_handler::request_t;
-    using response_t = typename profile_get_handler::response_t;
-
-    void handle(const request_t&, response_t& response) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    void handle(const fhttp::request<fhttp::json<request_json_params>, query_params>& request, fhttp::response<std::string>& response) {
+        // std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        // auto& account_manager = std::get<example_states::thread_safe_account_manager&>(global_state);
+        // FHTTP_LOG(INFO) << "Account count: " << account_manager.create_account();
+        // request.
         response.body = "Hello world!";
     }
 };
@@ -81,26 +115,6 @@ struct profile_view: public fhttp::view<
 > { };
 
 }
-
-struct thread_safe_account_manager {
-    std::string get_account_name(const std::string&) {
-        return "account name";
-    }
-};
-
-namespace fhttp {
-    template <>
-    std::optional<thread_safe_account_manager> create_state(const fhttp::none_config&) {
-        FHTTP_LOG(INFO) << "Creating state for thread_safe_account_manager";
-        return thread_safe_account_manager {};
-    }
-}
-
-struct not_thread_safe_friend_manager {
-    std::string get_friend_name(const std::string&) {
-        return "friend name";
-    }
-};
 
 
 int main() {
@@ -136,8 +150,7 @@ int main() {
     FHTTP_LOG(INFO) << "Running HTTP server...";
     
     fhttp::server<example_views::profile_view>
-        ::with_global_state<thread_safe_account_manager>
-        ::with_thread_local_state<not_thread_safe_friend_manager>
+        ::with_global_state<example_states::thread_safe_account_manager>
         server { "127.0.0.1", std::to_string(11111) };
 
     server.start(128*4);

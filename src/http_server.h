@@ -17,6 +17,7 @@
 #include "response.h"
 #include "meta.h"
 #include "logging.h"
+#include "cookies.h"
 
 #include <tuple>
 #include <type_traits>
@@ -68,6 +69,14 @@ struct http_handler {
 
     using request_t = request<request_body_t, query_params_t>;
     using response_t = response<response_body_t>;
+    using original_wanted_global_state_t = wanted_global_state_t;
+    using references_to_wanted_global_state_t = tuple_of_references_t<wanted_global_state_t>;
+
+    references_to_wanted_global_state_t global_state;
+
+    http_handler(references_to_wanted_global_state_t global_state)
+        : global_state(global_state)
+    {}
 
     void handle(const request_t&, response_t&)  {}
 
@@ -81,12 +90,18 @@ struct route {
     static constexpr const char* path_value = path.c_str();
     static constexpr method method_value = method_;
 
-    constexpr bool handle_request(const request<std::string>& req, response<std::string>& resp) const {
+    template <typename global_data_t>
+    constexpr bool handle_request(const request<std::string>& req, response<std::string>& resp, global_data_t& global_data) const {
         if (not matches(req.path, req.method)) {
             return false;
         }
 
-        handler_type handler {};
+        auto filtered_global_state_refs = filter_and_remove_ignores<
+            global_data_t, 
+            typename handler_type::references_to_wanted_global_state_t
+        >(global_data);
+
+        handler_type handler {filtered_global_state_refs};
         typename handler_type::response_t converted_response {};
         const auto converted_request = convert_request<
             typename handler_type::request_t::body_type,
@@ -118,18 +133,20 @@ template <typename route_t, typename ... Ts>
 struct view<route_t, Ts...> : public view<Ts...> {
     route_t route_instance;
 
-    bool handle_request(const request<std::string>& req, response<std::string>& resp) const {
-        if (route_instance.handle_request(req, resp)) {
+    template <typename global_data_t>
+    bool handle_request(const request<std::string>& req, response<std::string>& resp, global_data_t& global_data) const {
+        if (route_instance.handle_request(req, resp, global_data)) {
             return true;
         }
 
-        return view<Ts...>::handle_request(req, resp);
+        return view<Ts...>::handle_request(req, resp, global_data);
     }
 };
 
 template <>
 struct view<> {
-    bool handle_request(const request<std::string>&, response<std::string>&) const {
+    template <typename global_data_t>
+    bool handle_request(const request<std::string>&, response<std::string>&, global_data_t&) const {
         return false;
     }
 };
@@ -190,14 +207,17 @@ struct connection : std::enable_shared_from_this<connection> {
 
         if (result) {
             // handle request
-            // std::cout << method_to_string(current_request.method) << " " << current_request.path << " " << current_request.version << std::endl;
             response<std::string> response { };
+
+            if (current_request.headers.count("Cookie")) {
+                current_request.cookies.parse(current_request.headers["Cookie"]);
+            }
             handle_request(current_request, response);
 
             if (
                 current_request.http_version_major != 1 
                 or (
-                    current_request.headers.find("Connection") != current_request.headers.end() 
+                    current_request.headers.count("Connection") 
                     and current_request.headers["Connection"] == "close"
                 )
             ) {
@@ -255,6 +275,16 @@ value_t unwrap(std::optional<value_t> value) {
     std::unreachable();
 }
 
+template <typename value_t>
+value_t& unwrap_ref(std::optional<value_t>& value) {
+    if (value) {
+        return *value;
+    }
+
+    FHTTP_LOG(FATAL) << "Failed to unwrap value";
+    std::unreachable();
+}
+
 // Helper function to create a tuple
 template<typename Tuple, typename config_t, std::size_t... Is>
 auto create_tuple_from_types(const config_t& config, std::index_sequence<Is...>) {
@@ -287,7 +317,7 @@ struct server {
     server(const std::string& host, const std::string& port) : 
         acceptor { io_service },
         connection_instance { std::make_shared<connection>(io_service, [this] (const request<std::string>& req, response<std::string>& resp) {
-            if (not view_instance.handle_request(req, resp)) {
+            if (not view_instance.handle_request(req, resp, unwrap_ref(global_state))) {
                 resp.status_code = 404;
                 resp.body = "Not found";
                 std::cout << "No handler found for path: " << req.path << std::endl;
@@ -333,7 +363,7 @@ struct server {
             connection_instance->start();
         }
         connection_instance = std::make_shared<connection>(io_service, [this] (const request<std::string>& req, response<std::string>& resp) {
-            return view_instance.handle_request(req, resp);
+            return view_instance.handle_request(req, resp, unwrap_ref(global_state));
         });
         start_accept();
     }
