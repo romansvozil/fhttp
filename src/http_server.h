@@ -82,10 +82,6 @@ struct http_handler {
         : global_state(global_state)
         , config(config)
     {
-        FHTTP_LOG(INFO) << typeid(config_t).name();
-        FHTTP_LOG(INFO) << typeid(config).name();
-        FHTTP_LOG(INFO) << typeid(references_to_wanted_global_state_t).name();
-        FHTTP_LOG(INFO) << typeid(global_state).name();
     }
 
     void handle(const request_t&, response_t&)  {}
@@ -111,15 +107,9 @@ struct route {
             typename handler_type::references_to_wanted_global_state_t
         >(global_data);
 
-        FHTTP_LOG(INFO) << typeid(config_t).name();
-        FHTTP_LOG(INFO) << typeid(config).name();
-        FHTTP_LOG(INFO) << typeid(this).name();
-        FHTTP_LOG(INFO) << typeid(handler_type).name();
-
-
-        // handler_type handler(filtered_global_state_refs, config);
+        // TODO: find out why exactly this needs to be like this
         handler_type handler ({filtered_global_state_refs, config});
-        // auto handler = std::make_unique<handler_type>(filtered_global_state_refs, config);
+
         typename handler_type::response_t converted_response {};
         const auto converted_request = convert_request<
             typename handler_type::request_t::body_type,
