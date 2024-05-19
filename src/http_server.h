@@ -16,6 +16,7 @@
 #include "request_parser.h"
 #include "response.h"
 #include "meta.h"
+#include "logging.h"
 
 #include <tuple>
 #include <type_traits>
@@ -39,23 +40,38 @@ std::ostream& operator<<(std::ostream& os, const json<T>&) {
     return os;
 }
 
-template <typename handler_t, typename request_body_t = std::string, typename query_params_t = std::string, typename response_body_t = std::string>
+template <
+    typename handler_t, 
+    typename request_body_t = std::string, 
+    typename query_params_t = std::string, 
+    typename response_body_t = std::string, 
+    label_literal description = "None", 
+    typename wanted_global_state_t = std::tuple<>
+>
 struct http_handler {
     using handler_type = handler_t;
 
     template <typename new_request_body_t>
-    using with_request_body = http_handler<handler_t, new_request_body_t, query_params_t, response_body_t>;
+    using with_request_body = http_handler<handler_t, new_request_body_t, query_params_t, response_body_t, description, wanted_global_state_t>;
 
     template <typename new_query_t>
-    using with_request_query = http_handler<handler_t, request_body_t, new_query_t, response_body_t>;
+    using with_request_query = http_handler<handler_t, request_body_t, new_query_t, response_body_t, description, wanted_global_state_t>;
 
     template <typename new_response_body_t>
-    using with_response_body = http_handler<handler_t, request_body_t, query_params_t, new_response_body_t>;
+    using with_response_body = http_handler<handler_t, request_body_t, query_params_t, new_response_body_t, description, wanted_global_state_t>;
+
+    template <label_literal new_description>
+    using with_description = http_handler<handler_t, request_body_t, query_params_t, response_body_t, new_description, wanted_global_state_t>;
+
+    template <typename ... wanted_global_state_ts>
+    using with_global_state = http_handler<handler_t, request_body_t, query_params_t, response_body_t, description, std::tuple<wanted_global_state_ts ...>>;
 
     using request_t = request<request_body_t, query_params_t>;
     using response_t = response<response_body_t>;
 
     void handle(const request_t&, response_t&)  {}
+
+    static constexpr const char* description_value = description.c_str();
 };
 
 
@@ -135,47 +151,6 @@ struct some {
     numeric_types_tuple data;
 };
 
-using some_t = some<int, float, std::string>;
-void a() {
-    some_t t;
-    t.data = std::make_tuple(1, 2.0f);
-}
-
-struct profile_get_handler: public fhttp::http_handler<profile_get_handler>
-    ::with_request_body<fhttp::json<request_json_params>>
-    ::with_request_query<query_params>
-    ::with_response_body<std::string>
- {
-    using request_t = typename profile_get_handler::request_t;
-    using response_t = typename profile_get_handler::response_t;
-
-    void handle(const request_t&, response_t& response) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        response.body = "Hello world!";
-    }
-};
-
-struct echo_handler: public fhttp::http_handler<echo_handler> {
-    using request_t = typename echo_handler::request_t;
-    using response_t = typename echo_handler::response_t;
-
-    void handle(const request_t& request, response_t& response) {
-        response.body = request.body;
-    }
-};
-
-using profile_post_handler = profile_get_handler;
-using profile_get_by_id_handler = profile_get_handler;
-
-
-struct profile_view: public fhttp::view<
-    fhttp::route<"/echo", fhttp::method::post, echo_handler>,
-    fhttp::route<"/profile", fhttp::method::get, profile_get_handler>,
-    fhttp::route<"/profile", fhttp::method::post, profile_post_handler>,
-    fhttp::route<"/profile/:id", fhttp::method::get, profile_get_by_id_handler>
-> { };
-
-
 namespace fhttp {
 
 struct connection : std::enable_shared_from_this<connection> {
@@ -196,11 +171,12 @@ struct connection : std::enable_shared_from_this<connection> {
     { }
 
     void start() {
+        std::cout << "starting connection\n";
+        socket.set_option(boost::asio::ip::tcp::no_delay(true));
         socket.async_read_some(boost::asio::buffer(buffer),
-            strand.wrap(
                 boost::bind(&connection::handle_read, shared_from_this(),
                 boost::asio::placeholders::error,
-                boost::asio::placeholders::bytes_transferred)));
+                boost::asio::placeholders::bytes_transferred));
     }
 
     void handle_read(const boost::system::error_code& e, std::size_t bytes_read) {
@@ -214,7 +190,7 @@ struct connection : std::enable_shared_from_this<connection> {
 
         if (result) {
             // handle request
-            std::cout << method_to_string(current_request.method) << " " << current_request.path << " " << current_request.version << std::endl;
+            // std::cout << method_to_string(current_request.method) << " " << current_request.path << " " << current_request.version << std::endl;
             response<std::string> response { };
             handle_request(current_request, response);
 
@@ -230,18 +206,16 @@ struct connection : std::enable_shared_from_this<connection> {
 
             const auto response_string = response.to_string();
             boost::asio::async_write(socket, boost::asio::buffer(response_string.data(), response_string.size()),
-                strand.wrap(
                     boost::bind(&connection::post_response_sent, shared_from_this(),
-                    boost::asio::placeholders::error)));
+                    boost::asio::placeholders::error));
 
         } else if (!result) {
             listen_again();
         } else {
             socket.async_read_some(boost::asio::buffer(buffer),
-                strand.wrap(
                     boost::bind(&connection::handle_read, shared_from_this(),
                     boost::asio::placeholders::error,
-                    boost::asio::placeholders::bytes_transferred)));
+                    boost::asio::placeholders::bytes_transferred));
         }
     }
 
@@ -250,10 +224,9 @@ struct connection : std::enable_shared_from_this<connection> {
         parser.reset();
         
         socket.async_read_some(boost::asio::buffer(buffer),
-            strand.wrap(
                 boost::bind(&connection::handle_read, shared_from_this(),
                 boost::asio::placeholders::error,
-                boost::asio::placeholders::bytes_transferred)));
+                boost::asio::placeholders::bytes_transferred));
     }
 
     void post_response_sent(const boost::system::error_code& e) {
@@ -265,6 +238,36 @@ struct connection : std::enable_shared_from_this<connection> {
     }
 };
 
+struct none_config { };
+
+template <typename state_t, typename config_t>
+std::optional<state_t> create_state(const config_t&) {
+    return state_t {};
+}
+
+template <typename value_t>
+value_t unwrap(std::optional<value_t> value) {
+    if (value) {
+        return *value;
+    }
+
+    FHTTP_LOG(FATAL) << "Failed to unwrap value";
+    std::unreachable();
+}
+
+// Helper function to create a tuple
+template<typename Tuple, typename config_t, std::size_t... Is>
+auto create_tuple_from_types(const config_t& config, std::index_sequence<Is...>) {
+    return std::make_tuple(unwrap(create_state<std::tuple_element_t<Is, Tuple>, config_t>(config))...);
+}
+
+// Main function to create the tuple
+template<typename Tuple, typename config_t>
+auto create_tuple_from_types(const config_t& config) {
+    constexpr std::size_t N = std::tuple_size_v<Tuple>;
+    return create_tuple_from_types<Tuple, config_t>(config, std::make_index_sequence<N>{});
+}
+
 template <typename view_t, typename global_state_tuple_t = std::tuple<>, typename thread_local_state_tuple_t = std::tuple<>>
 struct server {
     boost::asio::io_service io_service;
@@ -273,7 +276,7 @@ struct server {
     std::shared_ptr<connection> connection_instance;
     view_t view_instance { };
 
-    global_state_tuple_t global_state { };
+    std::optional<global_state_tuple_t> global_state { };
 
     template <typename ... global_state_ts>
     using with_global_state = server<view_t, std::tuple<global_state_ts ...>, thread_local_state_tuple_t>;
@@ -299,7 +302,15 @@ struct server {
         acceptor.bind(endpoint);
         acceptor.listen();
 
+        initialize_global_state();
+        FHTTP_LOG(INFO) << "Starting a server";
         start_accept();
+    }
+
+    void initialize_global_state() {
+        // initialize each part of global_state_tuple_t using the create_state templated function
+        global_state = { create_tuple_from_types<global_state_tuple_t, none_config>({}) };
+
     }
 
     void start_accept() {
@@ -332,27 +343,4 @@ struct server {
     }
 };
 
-}
-
-struct thread_safe_account_manager {
-    std::string get_account_name(const std::string&) {
-        return "account name";
-    }
-};
-
-struct not_thread_safe_friend_manager {
-    std::string get_friend_name(const std::string&) {
-        return "friend name";
-    }
-};
-
-void start_http_server(const std::string&, const std::uint16_t& port) {
-    std::cout << "Starting server" << std::endl;
-    fhttp::server<profile_view>
-        ::with_global_state<thread_safe_account_manager>
-        ::with_thread_local_state<not_thread_safe_friend_manager> server { "127.0.0.1", std::to_string(port) };
-    server.start(1024);
-    std::cout << "Waiting for connections" << std::endl;
-    server.wait();
-    std::cout << "Server stopped" << std::endl;
 }

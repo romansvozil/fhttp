@@ -3,142 +3,115 @@
 #include <expected> 
 
 #include "http_server.h"
+#include "logging.h"
+#include "datalib.h"
 
-namespace datalib {
-
-template <typename T>
-constexpr const char* type_name() {
-    return T::type_name;
-}
-
-template<> constexpr const char* type_name<int>() { return "int"; }
-template<> constexpr const char* type_name<float>() { return "float"; }
-template<> constexpr const char* type_name<double>() { return "double"; }
-template<> constexpr const char* type_name<std::string>() { return "std::string"; }
-
-namespace internal {
-
-template<size_t N>
-struct label_literal {
-    constexpr label_literal(const char (&str)[N]) {
-        std::copy_n(str, N, value);
-    }
-
-    constexpr const char* c_str() const {
-        return value;
-    }
-    
-    char value[N] = { 0 };
-};
-
-}; // namespace internal
-
-template <internal::label_literal label_value, typename _value_type>
-struct field {
-public:
-    using value_type = _value_type;
-
-    constexpr field() = default;
-    constexpr field(const value_type& value) : value(value) {}
-
-    static constexpr const char* field_type_name() {
-        return type_name<value_type>();
-    }
-
-public:
-    static constexpr const char* label = label_value.c_str();
-    value_type value;
-};
-
-template <typename ... _types>
-struct data_pack {
-    constexpr data_pack() = default;
-    constexpr data_pack(_types&& ... args) : fields(std::forward<_types>(args)...) {}
-
-    template <typename T>
-    constexpr T::value_type& get() {
-        return std::get<T>(fields).value;
-    }
-
-    template <typename T>
-    constexpr const T::value_type& get() const {
-        return std::get<T>(fields).value;
-    }
-
-    std::tuple<
-        _types...
-    > fields;
-
-    constexpr std::ostream& json(std::ostream& os) const {
-        constexpr std::size_t n = sizeof...(_types);
-        os << "{";
-
-        std::apply([&os](auto&& ... args) {
-            std::size_t index = 0;
-            ([&] {
-                constexpr const bool is_numeric = std::is_arithmetic_v<decltype(args.value)>;
-
-                os 
-                    << "\"" << args.label << "\": " 
-                    << (is_numeric ? "" : "\"") << args.value << (is_numeric ? "" : "\"") << ((index++ < n - 1) ? ", " : "");
-            } (), ...);
-        }, fields);
-        os << "}";
-        return os;
-    }
-
-    void instrument() {
-        std::apply([](auto&& ... args) {
-            ((std::cout << args.label << ": " << _types::field_type_name() << std::endl), ...);
-        }, fields);
-    }
-};
-
-}; // namespace datalib
 
 namespace example_fields {
-    using name = datalib::field<"name", std::string>;
-    using age = datalib::field<"age", int>;
-    using height = datalib::field<"height", float>;
 
-    struct custom_name_val {
-        std::string value;
-        
-        constexpr custom_name_val() = default;
-        constexpr custom_name_val(const std::string& value) : value(value) {}
+using name = fhttp::datalib::field<"name", std::string>;
+using age = fhttp::datalib::field<"age", int>;
+using height = fhttp::datalib::field<"height", float>;
 
-        constexpr static const char* type_name = "custom_name_val";
-    };
+struct custom_name_val {
+    std::string value;
+    
+    constexpr custom_name_val() = default;
+    constexpr custom_name_val(const std::string& value) : value(value) {}
 
-    std::ostream& operator<<(std::ostream& os, const custom_name_val& val) {
-        os << val.value;
-        return os;
-    }
+    constexpr static const char* type_name = "custom_name_val";
+};
 
-    using custom_name = datalib::field<"custom_name", custom_name_val>;
-
-    struct person_entity: public datalib::data_pack<name, age, height, custom_name> {
-        using base = datalib::data_pack<name, age, height, custom_name>;
-        using base::base;
-
-        constexpr person_entity() = default;
-        constexpr person_entity(const std::string& name, int age, float height) : base(name, age, height, custom_name_val { name + " the Submariner" }) {}
-
-        constexpr int months_age() const {
-            return get<age>() * 12;
-        }
-    };
+std::ostream& operator<<(std::ostream& os, const custom_name_val& val) {
+    os << val.value;
+    return os;
 }
+
+using custom_name = fhttp::datalib::field<"custom_name", custom_name_val>;
+
+struct person_entity: public fhttp::datalib::data_pack<name, age, height, custom_name> {
+    using base = fhttp::datalib::data_pack<name, age, height, custom_name>;
+    using base::base;
+
+    constexpr person_entity() = default;
+    constexpr person_entity(const std::string& name, int age, float height) : base(name, age, height, custom_name_val { name + " the Submariner" }) {}
+
+    constexpr int months_age() const {
+        return get<age>() * 12;
+    }
+};
+
+}
+
+namespace example_views {
+
+struct profile_get_handler: public fhttp::http_handler<profile_get_handler>
+    ::with_request_body<fhttp::json<request_json_params>>
+    ::with_request_query<query_params>
+    ::with_response_body<std::string>
+    ::with_description<"Get profile">
+ {
+    using request_t = typename profile_get_handler::request_t;
+    using response_t = typename profile_get_handler::response_t;
+
+    void handle(const request_t&, response_t& response) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        response.body = "Hello world!";
+    }
+};
+
+struct echo_handler: public fhttp::http_handler<echo_handler> {
+    using request_t = typename echo_handler::request_t;
+    using response_t = typename echo_handler::response_t;
+
+    void handle(const request_t& request, response_t& response) {
+        response.body = request.body;
+    }
+};
+
+using profile_post_handler = profile_get_handler;
+using profile_get_by_id_handler = profile_get_handler;
+
+
+struct profile_view: public fhttp::view<
+    fhttp::route<"/echo", fhttp::method::post, echo_handler>,
+    fhttp::route<"/profile", fhttp::method::get, profile_get_handler>,
+    fhttp::route<"/profile", fhttp::method::post, profile_post_handler>,
+    fhttp::route<"/profile/:id", fhttp::method::get, profile_get_by_id_handler>
+> { };
+
+}
+
+struct thread_safe_account_manager {
+    std::string get_account_name(const std::string&) {
+        return "account name";
+    }
+};
+
+namespace fhttp {
+    template <>
+    std::optional<thread_safe_account_manager> create_state(const fhttp::none_config&) {
+        FHTTP_LOG(INFO) << "Creating state for thread_safe_account_manager";
+        return thread_safe_account_manager {};
+    }
+}
+
+struct not_thread_safe_friend_manager {
+    std::string get_friend_name(const std::string&) {
+        return "friend name";
+    }
+};
+
 
 int main() {
 
-    datalib::field<"name", std::string> name_field { "Roman Svozil" };
-    datalib::field<"cola", std::string> cola_field { "Kofola is much better tho" };
+    fhttp::datalib::field<"name", std::string> name_field { "Roman Svozil" };
+    fhttp::datalib::field<"cola", std::string> cola_field { "Kofola is much better tho" };
 
-    std::cout << "Label: " << name_field.label << " Value: " << name_field.value << std::endl;
-    std::cout << "Label: " << cola_field.label << " Value: " << cola_field.value << std::endl;
+    FHTTP_LOG(INFO) << "Label: " << name_field.label << " Value: " << name_field.value;
+    FHTTP_LOG(INFO) << "Label: " << cola_field.label << " Value: " << cola_field.value;
 
-    std::cout << "Data pack example: " << std::endl;
+    FHTTP_LOG(INFO) << "Data pack example: ";
 
     std::string name { "Namor" };
 
@@ -146,22 +119,32 @@ int main() {
         name, 21, 1.8f
     };
 
-    std::cout << "Name: "        << person.get<example_fields::name>()              << std::endl;
-    std::cout << "Custom Name: " << person.get<example_fields::custom_name>().value << std::endl;
-    std::cout << "Age: "         << person.get<example_fields::age>()               << std::endl;
-    std::cout << "Height: "      << person.get<example_fields::height>()            << std::endl;
-    std::cout << "Age Months: "  << person.months_age()                             << std::endl;
+    FHTTP_LOG(INFO) << "Name: "        << person.get<example_fields::name>();
+    FHTTP_LOG(INFO) << "Custom Name: " << person.get<example_fields::custom_name>().value;
+    FHTTP_LOG(INFO) << "Age: "         << person.get<example_fields::age>();
+    FHTTP_LOG(INFO) << "Height: "      << person.get<example_fields::height>();
+    FHTTP_LOG(INFO) << "Age Months: "  << person.months_age();
 
-    std::cout << "Instrumenting data pack: " << std::endl;
+    FHTTP_LOG(INFO) << "Instrumenting data pack: ";
     person.instrument();
 
-    std::cout << "\n=====JSON=====: " << std::endl;
-    person.json(std::cout);
+    FHTTP_LOG(INFO) << "=====JSON=====: ";
+    person.json(FHTTP_LOG(INFO));
 
-    std::cout << "\n=====HTTP Server=====: " << std::endl;
+    FHTTP_LOG(INFO) << "=====HTTP Server=====: ";
 
-    std::cout << "Running HTTP server..." << std::endl;
-    start_http_server("localhost", 11111);
+    FHTTP_LOG(INFO) << "Running HTTP server...";
+    
+    fhttp::server<example_views::profile_view>
+        ::with_global_state<thread_safe_account_manager>
+        ::with_thread_local_state<not_thread_safe_friend_manager>
+        server { "127.0.0.1", std::to_string(11111) };
+
+    server.start(128*4);
+
+    FHTTP_LOG(INFO) << "Waiting for connections";
+    server.wait();
+    FHTTP_LOG(INFO) << "Server stopped";
 
     return 0;
 }
