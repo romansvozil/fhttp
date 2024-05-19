@@ -85,7 +85,7 @@ struct profile_get_handler: public fhttp::http_handler<profile_get_handler>
     ::with_description<"Get profile">
     ::with_global_state<example_states::thread_safe_account_manager>
  {
-    void handle(const fhttp::request<fhttp::json<request_json_params>, query_params>& request, fhttp::response<std::string>& response) {
+    void handle(const fhttp::request<fhttp::json<request_json_params>, query_params>&, fhttp::response<std::string>& response) {
         // std::this_thread::sleep_for(std::chrono::milliseconds(20));
         // auto& account_manager = std::get<example_states::thread_safe_account_manager&>(global_state);
         // FHTTP_LOG(INFO) << "Account count: " << account_manager.create_account();
