@@ -4,7 +4,7 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Specify the C++ compiler (Clang++)
-set(CMAKE_CXX_COMPILER "/opt/homebrew/opt/llvm/bin/clang++")
+# set(CMAKE_CXX_COMPILER "/opt/homebrew/opt/llvm/bin/clang++")
 
 # Specify the minimum compiler version that supports C++23
 set(CMAKE_CXX_COMPILER_VERSION 17.0) # Update this based on your actual compiler version
