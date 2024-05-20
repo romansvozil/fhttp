@@ -60,6 +60,10 @@ struct fake_redis_manager {
     }
 };
 
+struct fake_sql_manager {
+
+};
+
 }
 
 /// @brief  Example of configuration for the server
@@ -89,15 +93,17 @@ namespace example_views {
 
 /// @brief Create base of our handlers with the server configuration
 template <typename parent_handler_t>
-struct base_handler: fhttp::http_handler<parent_handler_t, server_config> {};
+struct base_handler: public fhttp::http_handler<parent_handler_t, server_config> {
+    void set_up() {
+        FHTTP_LOG(INFO) << "Setting up handler";
+    }
+};
 
 struct profile_get_handler: public base_handler<profile_get_handler>
-    ::with_request_body<fhttp::json<request_json_params>>
-    ::with_request_query<query_params>
-    ::with_response_body<std::string>
-    ::with_description<"Get profile">
-    ::with_global_state<example_states::fake_redis_manager>
+    ::with_global_state<example_states::fake_redis_manager, example_states::fake_sql_manager>
  {
+    constexpr static const char* description = "Get profile";
+
     void handle(const fhttp::request<fhttp::json<request_json_params>, query_params>&, fhttp::response<std::string>& response) {
         // std::this_thread::sleep_for(std::chrono::milliseconds(20));
         // auto& account_manager = std::get<example_states::thread_safe_account_manager&>(global_state);
@@ -108,13 +114,9 @@ struct profile_get_handler: public base_handler<profile_get_handler>
 };
 
 struct echo_handler: public base_handler<echo_handler>
-    ::with_request_body<std::string>
-    ::with_request_query<query_params>
-    ::with_response_body<std::string>
     ::with_global_state<example_states::fake_redis_manager>
-    ::with_description<"Get profile">
 {
-    void handle(const auto& request, auto& response) {
+    void handle(const fhttp::request<std::string, query_params>& request, fhttp::response<std::string>& response) {
         response.body = request.body;
     }
 };
@@ -166,7 +168,7 @@ int main() {
     };
 
     fhttp::server<example_views::profile_view>
-        ::with_global_state<example_states::fake_redis_manager>
+        ::with_global_state<example_states::fake_redis_manager, example_states::fake_sql_manager>
         ::with_config<server_config>
         server { "127.0.0.1", std::to_string(11111), config };
 

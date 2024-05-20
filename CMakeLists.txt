@@ -9,7 +9,7 @@ set(CMAKE_CXX_COMPILER "/opt/homebrew/opt/llvm/bin/clang++")
 # Specify the minimum compiler version that supports C++23
 set(CMAKE_CXX_COMPILER_VERSION 17.0) # Update this based on your actual compiler version
 
-add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+add_compile_options(-Wall -Wextra -Wpedantic -Werror -O3)
 
 project(
   cpp-playground

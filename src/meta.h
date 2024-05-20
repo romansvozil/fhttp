@@ -100,4 +100,22 @@ OutputTuple filter_and_remove_ignores(InputTuple& t) {
         t, std::make_index_sequence<std::tuple_size<OutputTuple>::value>{});
 }
 
+
+// Helper template to get handlers type definitions
+template <auto Method>
+struct handler_type_definition;
+
+template <typename ClassType, typename ReturnType, typename... Args, ReturnType (ClassType::*Method)(Args...)>
+struct handler_type_definition<Method> {
+    using return_type_t = ReturnType;
+    using argument_types_t = std::tuple<Args...>;
+
+    // Helper type traits to extract individual argument types
+    template <std::size_t N>
+    using argument_t = typename std::tuple_element<N, argument_types_t>::type;
+    
+    using request_t = argument_t<0>;
+    using response_t = argument_t<1>;
+};
+
 }

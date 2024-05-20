@@ -41,35 +41,32 @@ std::ostream& operator<<(std::ostream& os, const json<T>&) {
     return os;
 }
 
+template <typename T, typename = void>
+struct has_description : std::false_type {};
+
+template <typename T>
+struct has_description<T, std::void_t<decltype(T::description)>> : std::true_type {};
+
+template <typename T>
+const char* get_handler_description() {
+    if constexpr (has_description<T>::value) {
+        return T::description;
+    } else {
+        return "This endpoint has no description";
+    }
+}
+
 template <
     typename handler_t,
     typename config_t,
-    typename request_body_t = std::string, 
-    typename query_params_t = std::string, 
-    typename response_body_t = std::string, 
-    label_literal description = "None", 
     typename wanted_global_state_t = std::tuple<>
 >
 struct http_handler {
     using handler_type = handler_t;
 
-    template <typename new_request_body_t>
-    using with_request_body = http_handler<handler_t, config_t, new_request_body_t, query_params_t, response_body_t, description, wanted_global_state_t>;
-
-    template <typename new_query_t>
-    using with_request_query = http_handler<handler_t, config_t, request_body_t, new_query_t, response_body_t, description, wanted_global_state_t>;
-
-    template <typename new_response_body_t>
-    using with_response_body = http_handler<handler_t, config_t, request_body_t, query_params_t, new_response_body_t, description, wanted_global_state_t>;
-
-    template <label_literal new_description>
-    using with_description = http_handler<handler_t, config_t, request_body_t, query_params_t, response_body_t, new_description, wanted_global_state_t>;
-
     template <typename ... wanted_global_state_ts>
-    using with_global_state = http_handler<handler_t, config_t, request_body_t, query_params_t, response_body_t, description, std::tuple<wanted_global_state_ts ...>>;
+    using with_global_state = http_handler<handler_t, config_t, std::tuple<wanted_global_state_ts ...>>;
 
-    using request_t = request<request_body_t, query_params_t>;
-    using response_t = response<response_body_t>;
     using original_wanted_global_state_t = wanted_global_state_t;
     using references_to_wanted_global_state_t = tuple_of_references_t<wanted_global_state_t>;
 
@@ -83,10 +80,6 @@ struct http_handler {
         , config(config)
     {
     }
-
-    void handle(const request_t&, response_t&)  {}
-
-    static constexpr const char* description_value = description.c_str();
 };
 
 
@@ -107,13 +100,16 @@ struct route {
             typename handler_type::references_to_wanted_global_state_t
         >(global_data);
 
+        using handler_definition = handler_type_definition<&handler_type::handle>;
+
         // TODO: find out why exactly this needs to be like this
+        FHTTP_LOG(INFO) << "Calling a handler with description: " << get_handler_description<handler_type>();
         handler_type handler ({filtered_global_state_refs, config});
 
-        typename handler_type::response_t converted_response {};
+        std::remove_reference_t<typename handler_definition::response_t> converted_response {};
         const auto converted_request = convert_request<
-            typename handler_type::request_t::body_type,
-            typename handler_type::request_t::query_params_type
+            typename std::remove_reference_t<typename handler_definition::request_t>::body_type,
+            typename std::remove_reference_t<typename handler_definition::request_t>::query_params_type
         >(req);
 
         handler.handle(converted_request, converted_response);
@@ -270,6 +266,7 @@ struct none_config { };
 
 template <typename state_t, typename config_t>
 std::optional<state_t> create_state(const config_t&) {
+    FHTTP_LOG(WARNING) << "Using default create_state function for " << typeid(state_t).name() << " with no config provided";
     return state_t {};
 }
 
