@@ -321,7 +321,7 @@ struct server {
     template <typename new_config_t>
     using with_config = server<view_t, new_config_t, global_state_tuple_t, thread_local_state_tuple_t>;
 
-    server(const std::string& host, const std::string& port, const config_t& config = config_t { }) : 
+    server(const std::string& host, const uint16_t port, const config_t& config = config_t { }) : 
         config { config },
         acceptor { io_service },
         connection_instance { std::make_shared<connection>(io_service, [this] (const request<std::string>& req, response<std::string>& resp) {
@@ -333,7 +333,7 @@ struct server {
         }) }
     {
         boost::asio::ip::tcp::resolver resolver(io_service);
-        boost::asio::ip::tcp::resolver::query query(host, port);
+        boost::asio::ip::tcp::resolver::query query(host, std::to_string(port));
         boost::asio::ip::tcp::endpoint endpoint = *resolver.resolve(query);
         acceptor.open(endpoint.protocol());
         acceptor.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));

@@ -174,7 +174,7 @@ int main() {
     };
 
     fhttp::server<example_views::profile_view, server_config, example_views::views_shared_state>
-        server { "127.0.0.1", std::to_string(11111), config };
+        server { "127.0.0.1", 11111, config };
 
     server.start(128*4);
 
