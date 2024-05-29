@@ -2,6 +2,10 @@
 
 #include <string>
 
+#include <boost/json.hpp>
+
+namespace json = boost::json;
+
 namespace fhttp {
 
 namespace datalib {
@@ -14,7 +18,7 @@ constexpr const char* type_name() {
 template<> constexpr const char* type_name<int>() { return "int"; }
 template<> constexpr const char* type_name<float>() { return "float"; }
 template<> constexpr const char* type_name<double>() { return "double"; }
-template<> constexpr const char* type_name<std::string>() { return "std::string"; }
+template<> constexpr const char* type_name<std::string>() { return "string"; }
 
 namespace internal {
 
@@ -50,8 +54,12 @@ public:
     value_type value;
 };
 
+#define FHTTP_FIELD(field_type_name, label, value_type) struct field_type_name : fhttp::datalib::field<label, value_type> {  }
+
 template <typename ... _types>
 struct data_pack {
+    using tuple_type_t = std::tuple<_types...>;
+
     constexpr data_pack() = default;
     constexpr data_pack(_types&& ... args) : fields(std::forward<_types>(args)...) {}
 
@@ -65,27 +73,12 @@ struct data_pack {
         return std::get<T>(fields).value;
     }
 
-    std::tuple<
-        _types...
-    > fields;
-
-    constexpr std::ostream& json(std::ostream& os) const {
-        constexpr std::size_t n = sizeof...(_types);
-        os << "{";
-
-        std::apply([&os](auto&& ... args) {
-            std::size_t index = 0;
-            ([&] {
-                constexpr const bool is_numeric = std::is_arithmetic_v<decltype(args.value)>;
-
-                os 
-                    << "\"" << args.label << "\": " 
-                    << (is_numeric ? "" : "\"") << args.value << (is_numeric ? "" : "\"") << ((index++ < n - 1) ? ", " : "");
-            } (), ...);
-        }, fields);
-        os << "}";
-        return os;
+    template <typename T>
+    constexpr void set(const T::value_type& value) {
+        std::get<T>(fields).value = value;
     }
+
+    tuple_type_t fields;
 
     void instrument() {
         std::apply([](auto&& ... args) {
@@ -93,6 +86,44 @@ struct data_pack {
         }, fields);
     }
 };
+
+template <typename content_t>
+std::enable_if_t<!has_fields<content_t>::value, boost::json::value> to_json(const content_t& content) {
+    boost::json::value val;
+    val = content;
+    return val;
+}
+
+template <typename content_t>
+boost::json::value to_json(const std::vector<content_t>& content) {
+    boost::json::array arr {content.begin(), content.end()};
+
+    return arr;
+}
+
+template <typename content_t>
+boost::json::value to_json(const std::unordered_map<std::string, content_t>& content) {
+    boost::json::object obj_map;
+
+    for (const auto& [key, value] : content) {
+        obj_map[key] = value;
+    }
+
+    return obj_map;
+}
+
+template <typename content_t>
+std::enable_if_t<has_fields<content_t>::value, boost::json::value> to_json(const content_t& data_pack_content) {
+    boost::json::object obj;
+
+    std::apply([&obj](auto&& ... args) {
+        ([&] {
+            obj[args.label] = to_json(args.value);
+        } (), ...);
+    }, data_pack_content.fields);
+
+    return obj;
+}
 
 }; // namespace datalib
 

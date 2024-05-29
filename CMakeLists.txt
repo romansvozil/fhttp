@@ -18,7 +18,7 @@ project(
 
 add_executable(cpp-playground src/cpp_playground.cc src/request_parser.cc)
 
-find_package(Boost 1.81.0 COMPONENTS filesystem regex thread chrono date_time) 
+find_package(Boost 1.81.0 COMPONENTS filesystem regex thread chrono date_time json) 
 
 if(Boost_FOUND)
     include_directories(${Boost_INCLUDE_DIRS}) 

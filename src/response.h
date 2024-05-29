@@ -5,7 +5,11 @@
 #include <sstream>
 #include <format>
 
+#include <boost/json.hpp>
+
 namespace fhttp {
+
+using json_response = boost::json::object;
 
 template <typename body_t>
 struct response {
@@ -31,7 +35,6 @@ struct response {
 
         ss << "\r\n";
         ss << body; 
-        // ss << "\r\n";
     
         std::cout << "sending response: " << body << std::endl;
         boost::asio::write(socket, boost::asio::buffer(ss.str()));
@@ -64,7 +67,9 @@ template <typename body_t>
 inline response<std::string> convert_to_string_response(const response<body_t>& resp) {
     response<std::string> new_resp {};
     new_resp.status_code = resp.status_code;
-    new_resp.body = std::format("{}", resp.body);
+    std::stringstream ss_body {};
+    ss_body << resp.body;
+    new_resp.body = ss_body.str();
     new_resp.version = resp.version;
     new_resp.headers = resp.headers;
     return new_resp;

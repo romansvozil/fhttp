@@ -2,6 +2,8 @@
 
 #include <string>
 
+#define FHTTP_UNUSED(x) (void)(x)
+
 namespace fhttp {
 
 template<size_t N>
@@ -117,5 +119,12 @@ struct handler_type_definition<Method> {
     using request_t = argument_t<0>;
     using response_t = argument_t<1>;
 };
+
+template <typename T, typename = void>
+struct has_fields : std::false_type {};
+
+template <typename T>
+struct has_fields<T, std::void_t<decltype(std::declval<T>().fields)>> : std::true_type {};
+
 
 }

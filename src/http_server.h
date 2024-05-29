@@ -18,6 +18,7 @@
 #include "meta.h"
 #include "logging.h"
 #include "cookies.h"
+#include "datalib.h"
 
 #include <tuple>
 #include <type_traits>
@@ -27,6 +28,10 @@ namespace fhttp {
 template <typename T>
 struct json {
     T data{};
+
+    T* operator->() {
+        return &data;
+    }
 };
 
 
@@ -36,8 +41,8 @@ std::ostream& operator<<(std::ostream& os, const json<std::string>& json) {
 }
 
 template <typename T>
-std::ostream& operator<<(std::ostream& os, const json<T>&) {
-    os << "unknown conversion";
+std::ostream& operator<<(std::ostream& os, const json<T>& value) {
+    os << boost::json::serialize(datalib::to_json(value.data));
     return os;
 }
 
@@ -57,25 +62,22 @@ const char* get_handler_description() {
 }
 
 template <
-    typename handler_t,
     typename config_t,
-    typename wanted_global_state_t = std::tuple<>
+    typename shared_state_t = std::tuple<>
 >
 struct http_handler {
-    using handler_type = handler_t;
+    // template <typename ... wanted_global_state_ts>
+    // using with_global_state = http_handler<handler_t, config_t, std::tuple<wanted_global_state_ts ...>>;
 
-    template <typename ... wanted_global_state_ts>
-    using with_global_state = http_handler<handler_t, config_t, std::tuple<wanted_global_state_ts ...>>;
+    using original_shared_state_t = shared_state_t;
+    using references_to_original_shared_state_t = tuple_of_references_t<original_shared_state_t>;
 
-    using original_wanted_global_state_t = wanted_global_state_t;
-    using references_to_wanted_global_state_t = tuple_of_references_t<wanted_global_state_t>;
-
-    references_to_wanted_global_state_t global_state;
+    references_to_original_shared_state_t global_state;
     const config_t& config;
 
     http_handler() = delete;
 
-    http_handler(references_to_wanted_global_state_t global_state, const config_t& config)
+    http_handler(const config_t& config, references_to_original_shared_state_t global_state)
         : global_state(global_state)
         , config(config)
     {
@@ -97,14 +99,14 @@ struct route {
 
         auto filtered_global_state_refs = filter_and_remove_ignores<
             global_data_t, 
-            typename handler_type::references_to_wanted_global_state_t
+            typename handler_type::references_to_original_shared_state_t
         >(global_data);
 
         using handler_definition = handler_type_definition<&handler_type::handle>;
 
         // TODO: find out why exactly this needs to be like this
         FHTTP_LOG(INFO) << "Calling a handler with description: " << get_handler_description<handler_type>();
-        handler_type handler ({filtered_global_state_refs, config});
+        handler_type handler {config, filtered_global_state_refs};
 
         std::remove_reference_t<typename handler_definition::response_t> converted_response {};
         const auto converted_request = convert_request<
@@ -161,17 +163,6 @@ struct request_json_params {};
 struct query_params {};
 struct profile_entity {};
 
-template <typename data_t>
-struct generic_response {};
-
-template <typename ... Ts>
-struct some {
-    // Filter only numeric types and put them in a tuple
-    using numeric_types_tuple = decltype(std::tuple_cat(std::declval<std::conditional_t<std::is_arithmetic_v<Ts>, std::tuple<Ts>, std::tuple<>>>()...));
-
-    numeric_types_tuple data;
-};
-
 namespace fhttp {
 
 struct connection : std::enable_shared_from_this<connection> {
@@ -192,7 +183,7 @@ struct connection : std::enable_shared_from_this<connection> {
     { }
 
     void start() {
-        std::cout << "starting connection\n";
+        FHTTP_LOG(INFO) << "Processing incomming connectiong from " << socket.remote_endpoint().address().to_string();
         socket.set_option(boost::asio::ip::tcp::no_delay(true));
         socket.async_read_some(boost::asio::buffer(buffer),
                 boost::bind(&connection::handle_read, shared_from_this(),
@@ -216,7 +207,14 @@ struct connection : std::enable_shared_from_this<connection> {
             if (current_request.headers.count("Cookie")) {
                 current_request.cookies.parse(current_request.headers["Cookie"]);
             }
-            handle_request(current_request, response);
+
+            try {
+                handle_request(current_request, response);
+            } catch (const std::exception& e) {
+                FHTTP_LOG(WARNING) << "Exception caught while handling request: " << e.what();
+                response.status_code = 500;
+                response.body = "Internal server error";
+            }
 
             if (
                 current_request.http_version_major != 1 

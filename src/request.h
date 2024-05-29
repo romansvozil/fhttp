@@ -5,10 +5,16 @@
 
 #include <boost/asio.hpp>
 
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/json_parser.hpp>
+
 #include "meta.h"
 #include "cookies.h"
+// #include "logging.h"
 
 namespace fhttp {
+
+using json_request = boost::property_tree::ptree;
 
 enum class method {
     get,
@@ -75,6 +81,21 @@ inline request<body_t, query_params_t> convert_request(const request<std::string
     new_req.body = from_string<body_t>(req.body);
     new_req.cookies = req.cookies;
     return new_req;
+}
+
+template <>
+inline boost::property_tree::ptree from_string(const std::string& str) {
+    std::stringstream ss {str};
+    boost::property_tree::ptree pt;
+
+    try {
+        boost::property_tree::read_json(ss, pt);
+    } catch (const std::exception& e) {
+        // FHTTP_LOG(WARNING) << "Failed to parse json: " << e.what();
+        return {};
+    }
+
+    return pt;
 }
 
 }

@@ -5,42 +5,15 @@
 #include "http_server.h"
 #include "logging.h"
 #include "datalib.h"
+#include "headers.h"
+#include "status_codes.h"
 
 
 namespace example_fields {
+    FHTTP_FIELD(response_status, "status", int);
+    FHTTP_FIELD(response_echo, "echo", std::string);
 
-using name = fhttp::datalib::field<"name", std::string>;
-using age = fhttp::datalib::field<"age", int>;
-using height = fhttp::datalib::field<"height", float>;
-
-struct custom_name_val {
-    std::string value;
-    
-    constexpr custom_name_val() = default;
-    constexpr custom_name_val(const std::string& value) : value(value) {}
-
-    constexpr static const char* type_name = "custom_name_val";
-};
-
-std::ostream& operator<<(std::ostream& os, const custom_name_val& val) {
-    os << val.value;
-    return os;
-}
-
-using custom_name = fhttp::datalib::field<"custom_name", custom_name_val>;
-
-struct person_entity: public fhttp::datalib::data_pack<name, age, height, custom_name> {
-    using base = fhttp::datalib::data_pack<name, age, height, custom_name>;
-    using base::base;
-
-    constexpr person_entity() = default;
-    constexpr person_entity(const std::string& name, int age, float height) : base(name, age, height, custom_name_val { name + " the Submariner" }) {}
-
-    constexpr int months_age() const {
-        return get<age>() * 12;
-    }
-};
-
+    using response_data = fhttp::datalib::data_pack<response_status, response_echo>;
 }
 
 namespace example_states {
@@ -61,7 +34,19 @@ struct fake_redis_manager {
 };
 
 struct fake_sql_manager {
+    struct profile {
+        std::string name;
+        std::string email;
+    };
 
+    /// @brief Get profile by name
+    /// @param name 
+    /// @return profile
+    std::optional<profile> get_profile(const std::string& name) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+     
+        return profile { name, name + "@example.com" };
+    }
 };
 
 }
@@ -73,6 +58,8 @@ struct server_config {
 
     std::string redis_connection_string;
     int redis_timeout;
+
+    std::string static_files_path;
 };
 
 /// @brief Example of creating a state for the server
@@ -91,85 +78,102 @@ namespace fhttp {
 
 namespace example_views {
 
+using views_shared_state = std::tuple<example_states::fake_redis_manager, example_states::fake_sql_manager>;
+
 /// @brief Create base of our handlers with the server configuration
-template <typename parent_handler_t>
-struct base_handler: public fhttp::http_handler<parent_handler_t, server_config> {
-    void set_up() {
-        FHTTP_LOG(INFO) << "Setting up handler";
-    }
+struct base_handler: public fhttp::http_handler<server_config, views_shared_state> {
+    using super = fhttp::http_handler<server_config, views_shared_state>;
+
+    base_handler(const server_config& config, views_shared_state state)
+        : super(config, state) {}
 };
 
-struct profile_get_handler: public base_handler<profile_get_handler>
-    ::with_global_state<example_states::fake_redis_manager, example_states::fake_sql_manager>
- {
+struct profile_get_handler: public base_handler {
     constexpr static const char* description = "Get profile";
 
+    example_states::fake_sql_manager& sql_manager;
+
+    profile_get_handler(const server_config& config, views_shared_state state)
+        : base_handler(config, state)
+        , sql_manager(std::get<example_states::fake_sql_manager>(state)) {}
+
     void handle(const fhttp::request<fhttp::json<request_json_params>, query_params>&, fhttp::response<std::string>& response) {
-        // std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        // auto& account_manager = std::get<example_states::thread_safe_account_manager&>(global_state);
-        // FHTTP_LOG(INFO) << "Account count: " << account_manager.create_account();
-        // request.
+        const auto user = sql_manager.get_profile("Roman Svozil");
+
+        if (!user) {
+            response.status_code = fhttp::STATUS_CODE_NOT_FOUND;
+            return;
+        }
+
         response.body = "Hello world!";
     }
 };
 
-struct echo_handler: public base_handler<echo_handler>
-    ::with_global_state<example_states::fake_redis_manager>
-{
+struct echo_handler: public base_handler {
+    echo_handler(const server_config& config, views_shared_state state)
+        : base_handler(config, state) {}
+
+    void handle(const fhttp::request<fhttp::json_request, query_params>& request, fhttp::response<fhttp::json<example_fields::response_data>>& response) {
+        response.headers[fhttp::HEADER_CONTENT_TYPE] = "application/json";
+        response.body->set<example_fields::response_echo>(request.body.get<std::string>("echo"));
+    }
+};
+
+struct static_files_handler: public base_handler {
+    static_files_handler(const server_config& config, views_shared_state state)
+        : base_handler(config, state) {}
+
+    constexpr static const char* description = "Static files handler";
+
     void handle(const fhttp::request<std::string, query_params>& request, fhttp::response<std::string>& response) {
-        response.body = request.body;
+        auto get_file_content = [](const std::string& path) -> std::string {
+            std::ifstream file(path);
+            if (!file.is_open()) {
+                return "";
+            }
+
+            std::stringstream ss;
+            ss << file.rdbuf();
+            return ss.str();
+        };
+
+        if (!validate_path(request.path)) {
+            response.status_code = fhttp::STATUS_CODE_FORBIDDEN;
+            return;
+        }
+
+        response.body = get_file_content(config.static_files_path + request.path);
+
+        if (response.body.empty()) {
+            response.status_code = fhttp::STATUS_CODE_NOT_FOUND;
+        } else {
+            response.headers[fhttp::HEADER_CONTENT_TYPE] = "text/html";
+        }
+    }
+
+    bool validate_path(const std::string& path) {
+        return path.find("..") == std::string::npos;
     }
 };
 
 
 struct profile_view: public fhttp::view<
     fhttp::route<"/echo", fhttp::method::post, echo_handler>,
-    fhttp::route<"/profile", fhttp::method::get, profile_get_handler>
+    fhttp::route<"/profile", fhttp::method::get, profile_get_handler>,
+    fhttp::route<"/static/(.*)", fhttp::method::get, static_files_handler>
 > { };
 
 }
 
 int main() {
-
-    fhttp::datalib::field<"name", std::string> name_field { "Roman Svozil" };
-    fhttp::datalib::field<"cola", std::string> cola_field { "Kofola is much better tho" };
-
-    FHTTP_LOG(INFO) << "Label: " << name_field.label << " Value: " << name_field.value;
-    FHTTP_LOG(INFO) << "Label: " << cola_field.label << " Value: " << cola_field.value;
-
-    FHTTP_LOG(INFO) << "Data pack example: ";
-
-    std::string name { "Namor" };
-
-    example_fields::person_entity person {
-        name, 21, 1.8f
-    };
-
-    FHTTP_LOG(INFO) << "Name: "        << person.get<example_fields::name>();
-    FHTTP_LOG(INFO) << "Custom Name: " << person.get<example_fields::custom_name>().value;
-    FHTTP_LOG(INFO) << "Age: "         << person.get<example_fields::age>();
-    FHTTP_LOG(INFO) << "Height: "      << person.get<example_fields::height>();
-    FHTTP_LOG(INFO) << "Age Months: "  << person.months_age();
-
-    FHTTP_LOG(INFO) << "Instrumenting data pack: ";
-    person.instrument();
-
-    FHTTP_LOG(INFO) << "=====JSON=====: ";
-    person.json(FHTTP_LOG(INFO));
-
-    FHTTP_LOG(INFO) << "=====HTTP Server=====: ";
-
-    FHTTP_LOG(INFO) << "Running HTTP server...";
-    
     // Initialize the configuration
     server_config config {
         "mysql://localhost:3306", 10,
-        "redis://localhost:6379", 5
+        "redis://localhost:6379", 5,
+        "/Users/roman.svozil/git/cpp-playground/src/www"
     };
 
-    fhttp::server<example_views::profile_view>
-        ::with_global_state<example_states::fake_redis_manager, example_states::fake_sql_manager>
-        ::with_config<server_config>
+    fhttp::server<example_views::profile_view, server_config, example_views::views_shared_state>
         server { "127.0.0.1", std::to_string(11111), config };
 
     server.start(128*4);
