@@ -91,10 +91,13 @@ struct route {
     static constexpr method method_value = method_;
 
     template <typename global_data_t, typename config_t>
-    constexpr bool handle_request(const request<std::string>& req, response<std::string>& resp, global_data_t& global_data, const config_t& config) const {
-        if (not matches(req.path, req.method)) {
+    constexpr bool handle_request(request<std::string>& req, response<std::string>& resp, global_data_t& global_data, const config_t& config) const {
+        const auto [matched, regex_groups] = matches(req.path, req.method);
+        if (not matched) {
             return false;
         }
+
+        req.url_matches = regex_groups;
 
         auto filtered_global_state_refs = filter_and_remove_ignores<
             global_data_t, 
@@ -103,7 +106,6 @@ struct route {
 
         using handler_definition = handler_type_definition<&handler_type::handle>;
 
-        // TODO: find out why exactly this needs to be like this
         FHTTP_LOG(INFO) << "Calling a handler with description: " << get_handler_description<handler_type>();
         handler_type handler {config, filtered_global_state_refs};
 
@@ -120,13 +122,22 @@ struct route {
     }
 
 private:
-    constexpr bool matches(const std::string& path_to_match, method method) const {
+    std::pair<bool, boost::smatch> matches(const std::string& path_to_match, method method) const {
+        boost::smatch what;
+
         if (method != method_value) {
-            return false;
+            return {false, what};
         }
 
+        /// Note: regex expression, can be static, so we won't compile it every time
+        /// BUT, not sure if it's thread safe
         static const boost::regex expression { path_value };
-        return boost::regex_match(path_to_match, expression);
+
+        if (!boost::regex_match(path_to_match, what, expression)) {
+            return {false, what};
+        }
+
+        return {true, what};
     }
 };
 
@@ -139,7 +150,7 @@ struct view<route_t, Ts...> : public view<Ts...> {
     route_t route_instance;
 
     template <typename global_data_t, typename config_t>
-    bool handle_request(const request<std::string>& req, response<std::string>& resp, global_data_t& global_data, const config_t& config) const {
+    bool handle_request(request<std::string>& req, response<std::string>& resp, global_data_t& global_data, const config_t& config) const {
         if (route_instance.handle_request(req, resp, global_data, config)) {
             return true;
         }
@@ -151,7 +162,7 @@ struct view<route_t, Ts...> : public view<Ts...> {
 template <>
 struct view<> {
     template <typename global_data_t, typename config_t>
-    bool handle_request(const request<std::string>&, response<std::string>&, global_data_t&, const config_t&) const {
+    bool handle_request(request<std::string>&, response<std::string>&, global_data_t&, const config_t&) const {
         return false;
     }
 };
@@ -171,10 +182,10 @@ struct connection : std::enable_shared_from_this<connection> {
     std::array<char, 1024*8> buffer {  };
     request<std::string> current_request { };
     request_parser parser { };
-    std::function<void(const request<std::string>&, response<std::string>&)> handle_request;
+    std::function<void(request<std::string>&, response<std::string>&)> handle_request;
     bool should_stop { false };
 
-    connection(boost::asio::io_service& io_service, std::function<void(const request<std::string>&, response<std::string>&)>&& handle_request) : 
+    connection(boost::asio::io_service& io_service, std::function<void(request<std::string>&, response<std::string>&)>&& handle_request) : 
         io_service { io_service },
         strand { io_service },
         socket { io_service },
@@ -323,7 +334,7 @@ struct server {
     server(const std::string& host, const uint16_t port, const config_t& config = config_t { }) : 
         config { config },
         acceptor { io_service },
-        connection_instance { std::make_shared<connection>(io_service, [this] (const request<std::string>& req, response<std::string>& resp) {
+        connection_instance { std::make_shared<connection>(io_service, [this] (request<std::string>& req, response<std::string>& resp) {
             if (not view_instance.handle_request(req, resp, unwrap_ref(global_state), this->config)) {
                 resp.status_code = 404;
                 resp.body = "Not found";
@@ -369,7 +380,7 @@ struct server {
         if (!e) {
             connection_instance->start();
         }
-        connection_instance = std::make_shared<connection>(io_service, [this] (const request<std::string>& req, response<std::string>& resp) {
+        connection_instance = std::make_shared<connection>(io_service, [this] (request<std::string>& req, response<std::string>& resp) {
             return view_instance.handle_request(req, resp, unwrap_ref(global_state), this->config);
         });
         start_accept();

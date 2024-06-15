@@ -7,6 +7,7 @@
 
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
+#include <boost/regex.hpp>
 
 #include "meta.h"
 #include "cookies.h"
@@ -45,6 +46,7 @@ struct request {
     body_t body{};
     boost::asio::ip::tcp::endpoint remote_endpoint{};
     cookies cookies{};
+    boost::smatch url_matches{};
 };
 
 template <typename body_t, typename query_params_t = void>
@@ -56,6 +58,7 @@ inline request<body_t, query_params_t> convert_request(const request<std::string
     new_req.headers = req.headers;
     new_req.body = from_string<body_t>(req.body);
     new_req.cookies = req.cookies;
+    new_req.url_matches = req.url_matches;
     return new_req;
 }
 

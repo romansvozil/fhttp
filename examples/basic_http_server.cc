@@ -193,7 +193,7 @@ struct static_files_handler: public base_handler {
             return;
         }
 
-        const auto path = config.static_files_path + request.path;
+        const auto path = config.static_files_path + request.url_matches["path"];
         FHTTP_LOG(INFO) << "Serving file: " << path;
 
         response.body = get_file_content(path);
@@ -214,7 +214,7 @@ struct static_files_handler: public base_handler {
 struct profile_view: public fhttp::view<
     fhttp::route<"/echo", fhttp::method::post, echo_handler>,
     fhttp::route<"/profile", fhttp::method::get, profile_get_handler>,
-    fhttp::route<"/static/(.*)", fhttp::method::get, static_files_handler>
+    fhttp::route<"/static/(?<path>.*)", fhttp::method::get, static_files_handler>
 > { };
 
 }
@@ -224,7 +224,7 @@ int main() {
     server_config config {
         "mysql://localhost:3306", 10,
         "redis://localhost:6379", 5,
-        get_directory(__FILE__) + "/www"
+        get_directory(__FILE__) + "/www/static/"
     };
 
     fhttp::server<example_views::profile_view, server_config, example_views::views_shared_state>
