@@ -16,17 +16,22 @@ project(
   VERSION 1.0
   LANGUAGES CXX)
 
-add_executable(cpp-playground src/cpp_playground.cc src/request_parser.cc)
+include_directories(include)
 
 find_package(Boost 1.81.0 COMPONENTS filesystem regex thread chrono date_time json) 
+
+add_subdirectory(src)
 
 if(Boost_FOUND)
     include_directories(${Boost_INCLUDE_DIRS}) 
     message ("-- Boost libraries found: ${Boost_LIBRARIES}")
     include_directories(${Boost_INCLUDE_DIRS})
-    target_link_libraries(cpp-playground ${Boost_LIBRARIES})
+    target_link_libraries(fhttplib ${Boost_LIBRARIES})
 endif()
 
-target_compile_features(cpp-playground PUBLIC cxx_std_23)
-set_target_properties(cpp-playground PROPERTIES CXX_STANDARD 23)
+add_subdirectory(examples)
+
+# add_executable(cpp-playground src/cpp_playground.cc src/request_parser.cc src/data/json.cc)
+# target_compile_features(cpp-playground PUBLIC cxx_std_23)
+# set_target_properties(cpp-playground PROPERTIES CXX_STANDARD 23)
 

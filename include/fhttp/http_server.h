@@ -18,7 +18,7 @@
 #include "meta.h"
 #include "logging.h"
 #include "cookies.h"
-#include "datalib.h"
+#include "data/data.h"
 
 #include <tuple>
 #include <type_traits>
@@ -42,7 +42,9 @@ std::ostream& operator<<(std::ostream& os, const json<std::string>& json) {
 
 template <typename T>
 std::ostream& operator<<(std::ostream& os, const json<T>& value) {
-    os << boost::json::serialize(datalib::to_json(value.data));
+    if (const auto serialized = datalib::serialization::to_json(value.data); serialized) {
+        os << boost::json::serialize(*serialized);
+    }
     return os;
 }
 
@@ -66,9 +68,6 @@ template <
     typename shared_state_t = std::tuple<>
 >
 struct http_handler {
-    // template <typename ... wanted_global_state_ts>
-    // using with_global_state = http_handler<handler_t, config_t, std::tuple<wanted_global_state_ts ...>>;
-
     using original_shared_state_t = shared_state_t;
     using references_to_original_shared_state_t = tuple_of_references_t<original_shared_state_t>;
 

@@ -2,18 +2,57 @@
 #include <utility>
 #include <expected> 
 
-#include "http_server.h"
-#include "logging.h"
-#include "datalib.h"
-#include "headers.h"
-#include "status_codes.h"
+#include <fhttp/http_server.h>
+#include <fhttp/logging.h>
+#include <fhttp/data/data.h>
+#include <fhttp/headers.h>
+#include <fhttp/status_codes.h>
 
+
+namespace {
+
+std::string get_directory(const std::string& file_path) {
+    std::filesystem::path path(file_path);
+    return path.parent_path().string();
+}
+
+} // anonymous namespace
 
 namespace example_fields {
-    FHTTP_FIELD(response_status, "status", int);
-    FHTTP_FIELD(response_echo, "echo", std::string);
+    using status =  fhttp::datalib::field<"status", int>;
+    using version = fhttp::datalib::field<"version", std::string>;
 
-    using response_data = fhttp::datalib::data_pack<response_status, response_echo>;
+    using echo = fhttp::datalib::field<"echo", std::string>;
+    using name = fhttp::datalib::field<"name", std::string>;
+    using email = fhttp::datalib::field<"email", std::string>;
+
+    namespace v1 {
+
+    template <typename T>
+    struct response: public fhttp::datalib::data_pack<status, version, T> {
+        using super = fhttp::datalib::data_pack<status, version, T>;
+        using super::super;
+
+        response() {
+            // TODO: what is this syntax???
+            this->template set<version>("1.0");
+        }
+
+        response(int status_code, const T& data)
+            : super(status_code, data)
+            , response() {}
+
+    };
+
+    template <typename T>
+    using json_response = fhttp::json<response<T>>;
+
+    } // namespace v1
+
+    using response_data = fhttp::datalib::data_pack<status, echo>;
+    using profile_data = fhttp::datalib::data_pack<name, email>;
+
+    using profile = fhttp::datalib::field<"profile", profile_data>;
 }
 
 namespace example_states {
@@ -93,11 +132,17 @@ struct profile_get_handler: public base_handler {
 
     example_states::fake_sql_manager& sql_manager;
 
+    using request_body_t = fhttp::json<request_json_params>;
+    using response_body_t = example_fields::v1::json_response<example_fields::profile>;
+
     profile_get_handler(const server_config& config, views_shared_state state)
         : base_handler(config, state)
         , sql_manager(std::get<example_states::fake_sql_manager>(state)) {}
 
-    void handle(const fhttp::request<fhttp::json<request_json_params>, query_params>&, fhttp::response<std::string>& response) {
+    void handle(
+        const fhttp::request<request_body_t>&, 
+        fhttp::response<response_body_t>& response
+    ) {
         const auto user = sql_manager.get_profile("Roman Svozil");
 
         if (!user) {
@@ -105,7 +150,13 @@ struct profile_get_handler: public base_handler {
             return;
         }
 
-        response.body = "Hello world!";
+        auto& result = response.body->get<example_fields::profile>();
+
+        result.set<example_fields::name>(user->name);
+        result.set<example_fields::email>(user->email);
+
+        response.headers[fhttp::HEADER_CONTENT_TYPE] = "application/json";
+        response.body->set<example_fields::status>(fhttp::STATUS_CODE_OK);
     }
 };
 
@@ -113,9 +164,9 @@ struct echo_handler: public base_handler {
     echo_handler(const server_config& config, views_shared_state state)
         : base_handler(config, state) {}
 
-    void handle(const fhttp::request<fhttp::json_request, query_params>& request, fhttp::response<fhttp::json<example_fields::response_data>>& response) {
+    void handle(const fhttp::request<fhttp::json_request>& request, fhttp::response<fhttp::json<example_fields::response_data>>& response) {
         response.headers[fhttp::HEADER_CONTENT_TYPE] = "application/json";
-        response.body->set<example_fields::response_echo>(request.body.get<std::string>("echo"));
+        response.body->set<example_fields::echo>(request.body.get<std::string>("echo"));
     }
 };
 
@@ -142,7 +193,10 @@ struct static_files_handler: public base_handler {
             return;
         }
 
-        response.body = get_file_content(config.static_files_path + request.path);
+        const auto path = config.static_files_path + request.path;
+        FHTTP_LOG(INFO) << "Serving file: " << path;
+
+        response.body = get_file_content(path);
 
         if (response.body.empty()) {
             response.status_code = fhttp::STATUS_CODE_NOT_FOUND;
@@ -170,7 +224,7 @@ int main() {
     server_config config {
         "mysql://localhost:3306", 10,
         "redis://localhost:6379", 5,
-        "/Users/roman.svozil/git/cpp-playground/src/www"
+        get_directory(__FILE__) + "/www"
     };
 
     fhttp::server<example_views::profile_view, server_config, example_views::views_shared_state>

@@ -4,6 +4,8 @@
 
 #include <boost/json.hpp>
 
+#include "json.h"
+
 namespace json = boost::json;
 
 namespace fhttp {
@@ -37,7 +39,7 @@ struct label_literal {
 
 }; // namespace internal
 
-template <internal::label_literal label_value, typename _value_type>
+template <internal::label_literal label_value, typename _value_type, internal::label_literal description_value = "">
 struct field {
 public:
     using value_type = _value_type;
@@ -51,6 +53,7 @@ public:
 
 public:
     static constexpr const char* label = label_value.c_str();
+    static constexpr const char* description = description_value.c_str();
     value_type value;
 };
 
@@ -79,51 +82,7 @@ struct data_pack {
     }
 
     tuple_type_t fields;
-
-    void instrument() {
-        std::apply([](auto&& ... args) {
-            ((std::cout << args.label << ": " << _types::field_type_name() << std::endl), ...);
-        }, fields);
-    }
 };
-
-template <typename content_t>
-std::enable_if_t<!has_fields<content_t>::value, boost::json::value> to_json(const content_t& content) {
-    boost::json::value val;
-    val = content;
-    return val;
-}
-
-template <typename content_t>
-boost::json::value to_json(const std::vector<content_t>& content) {
-    boost::json::array arr {content.begin(), content.end()};
-
-    return arr;
-}
-
-template <typename content_t>
-boost::json::value to_json(const std::unordered_map<std::string, content_t>& content) {
-    boost::json::object obj_map;
-
-    for (const auto& [key, value] : content) {
-        obj_map[key] = value;
-    }
-
-    return obj_map;
-}
-
-template <typename content_t>
-std::enable_if_t<has_fields<content_t>::value, boost::json::value> to_json(const content_t& data_pack_content) {
-    boost::json::object obj;
-
-    std::apply([&obj](auto&& ... args) {
-        ([&] {
-            obj[args.label] = to_json(args.value);
-        } (), ...);
-    }, data_pack_content.fields);
-
-    return obj;
-}
 
 }; // namespace datalib
 
