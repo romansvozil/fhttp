@@ -1,4 +1,5 @@
 # todo
+- tests
 - at least somehow working library
 - at least performance of django:)
 - swagger
