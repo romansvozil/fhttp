@@ -21,12 +21,12 @@ std::string get_directory(const std::string& file_path) {
 } // anonymous namespace
 
 namespace example_fields {
-    using status =  fhttp::datalib::field<"status", int>;
-    using version = fhttp::datalib::field<"version", std::string>;
+    using status =  fhttp::datalib::field<"status", int, "HTTP Status of response">;
+    using version = fhttp::datalib::field<"version", std::string, "API Version">;
 
-    using echo = fhttp::datalib::field<"echo", std::string>;
-    using name = fhttp::datalib::field<"name", std::string>;
-    using email = fhttp::datalib::field<"email", std::string>;
+    using echo = fhttp::datalib::field<"echo", std::string, "Echo Response">;
+    using name = fhttp::datalib::field<"name", std::string, "Profile Name">;
+    using email = fhttp::datalib::field<"email", std::string, "Profile Email">;
 
     namespace v1 {
 
@@ -54,10 +54,10 @@ namespace example_fields {
     using response_data = fhttp::datalib::data_pack<status, echo>;
     using profile_data = fhttp::datalib::data_pack<name, email>;
 
-    using profile = fhttp::datalib::field<"profile", profile_data>;
+    using profile = fhttp::datalib::field<"profile", profile_data, "User Profile">;
 
     namespace input {
-        using name = fhttp::datalib::field<"name", std::string>;
+        using name = fhttp::datalib::field<"name", std::string, "User Name">;
     }
 
     using profile_request = fhttp::datalib::data_pack<input::name>;
@@ -184,6 +184,20 @@ struct echo_handler: public base_handler {
     }
 };
 
+struct hello_handler: public base_handler {
+    using request_t = fhttp::request<std::string>;
+
+    constexpr static const char* description = "Echo handler";
+
+    hello_handler(const server_config& config, views_shared_state state)
+        : base_handler(config, state) {}
+
+    void handle(const request_t&, fhttp::response<fhttp::json<example_fields::response_data>>& response) {
+        response.headers[fhttp::HEADER_CONTENT_TYPE] = "plain/text";
+        response.body->set<example_fields::echo>("Hello, World!");
+    }
+};
+
 struct static_files_handler: public base_handler {
     static_files_handler(const server_config& config, views_shared_state state)
         : base_handler(config, state) {}
@@ -229,6 +243,7 @@ struct views: public fhttp::view<
     fhttp::route<"/echo", fhttp::method::post, echo_handler>
     , fhttp::route<"/profile", fhttp::method::get, profile_get_handler>
     , fhttp::route<"/static/(?<path>.*)", fhttp::method::get, static_files_handler>
+    , fhttp::route<"/hello", fhttp::method::get, hello_handler>
 > { };
 
 }
@@ -244,8 +259,8 @@ int main() {
     fhttp::server<example_views::views, server_config, example_views::views_shared_state>
         server { "127.0.0.1", 11111, config };
     
-    server.set_graceful_shutdown_seconds(2);
-    server.set_n_threads(128);
+    server.set_graceful_shutdown_seconds(4);
+    server.set_n_threads(128*2);
 
     FHTTP_LOG(INFO) << "Swagger:";
     fhttp::datalib::utils::pretty_print(
@@ -255,6 +270,7 @@ int main() {
         )
     );
 
+    server.start();
     FHTTP_LOG(INFO) << "Waiting for connections";
     server.wait();
     FHTTP_LOG(INFO) << "Server stopped";

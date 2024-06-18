@@ -144,19 +144,6 @@ boost::json::value generateV3(
     }, route_ts{});
 
     swagger["paths"] = paths;
-
-    // swagger["schemes"] = {
-    //     "http"
-    // };
-
-    // swagger["consumes"] = {
-    //     "application/json"
-    // };
-
-    // swagger["produces"] = {
-    //     "application/json"
-    // };
-
     return swagger;
 }
 

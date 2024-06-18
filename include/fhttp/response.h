@@ -39,6 +39,8 @@ struct response {
         ss << body; 
     
         std::cout << "sending response: " << body << std::endl;
+
+        // might be a performance bottleneck, since it's not async, but hard to say I suppose
         boost::asio::write(socket, boost::asio::buffer(ss.str()));
     }
 
@@ -59,7 +61,6 @@ struct response {
 
         ss << "\r\n";
         ss << body; 
-        // ss << "\r\n";
 
         return ss.str();
     }
