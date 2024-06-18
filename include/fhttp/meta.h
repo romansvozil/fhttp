@@ -20,15 +20,15 @@ struct label_literal {
 };
 
 
-template <typename T>
-inline T from_string(const std::string&) {
-    return T { };
-}
+// template <typename T>
+// inline T from_string(const std::string&) {
+//     return T { };
+// }
 
-template <>
-inline std::string from_string<std::string>(const std::string& str) {
-    return str;
-}
+// template <>
+// inline std::string from_string<std::string>(const std::string& str) {
+//     return str;
+// }
 
 
 // Helper template to transform a type T to a reference type T&

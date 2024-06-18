@@ -25,29 +25,6 @@
 
 namespace fhttp {
 
-template <typename T>
-struct json {
-    T data{};
-
-    T* operator->() {
-        return &data;
-    }
-};
-
-
-std::ostream& operator<<(std::ostream& os, const json<std::string>& json) {
-    os << json.data;
-    return os;
-}
-
-template <typename T>
-std::ostream& operator<<(std::ostream& os, const json<T>& value) {
-    if (const auto serialized = datalib::serialization::to_json(value.data); serialized) {
-        os << boost::json::serialize(*serialized);
-    }
-    return os;
-}
-
 template <typename T, typename = void>
 struct has_description : std::false_type {};
 
@@ -147,6 +124,8 @@ struct view;
 
 template <typename route_t, typename ... Ts>
 struct view<route_t, Ts...> : public view<Ts...> {
+    using route_ts = std::tuple<route_t, Ts...>;
+    
     route_t route_instance;
 
     template <typename global_data_t, typename config_t>
@@ -319,6 +298,14 @@ struct server {
     boost::thread_group threadpool;
     std::shared_ptr<connection> connection_instance;
     view_t view_instance { };
+    
+    /* Shutdown related */
+    boost::posix_time::seconds graceful_shutdown_seconds { 0 };
+    bool is_shutting_down { false };
+    boost::asio::signal_set signals;
+    boost::asio::deadline_timer graceful_shutdown_timer;
+
+    size_t n_threads { 1 };
 
     std::optional<global_state_tuple_t> global_state { };
 
@@ -331,6 +318,8 @@ struct server {
     template <typename new_config_t>
     using with_config = server<view_t, new_config_t, global_state_tuple_t, thread_local_state_tuple_t>;
 
+    using this_t = server<view_t, config_t, global_state_tuple_t, thread_local_state_tuple_t>;
+
     server(const std::string& host, const uint16_t port, const config_t& config = config_t { }) : 
         config { config },
         acceptor { io_service },
@@ -340,7 +329,9 @@ struct server {
                 resp.body = "Not found";
                 std::cout << "No handler found for path: " << req.path << std::endl;
             }
-        }) }
+        }) },
+        signals(io_service, SIGINT, SIGTERM),
+        graceful_shutdown_timer(io_service, graceful_shutdown_seconds)
     {
         boost::asio::ip::tcp::resolver resolver(io_service);
         boost::asio::ip::tcp::resolver::query query(host, std::to_string(port));
@@ -353,6 +344,25 @@ struct server {
         initialize_global_state();
         FHTTP_LOG(INFO) << "Starting a server";
         start_accept();
+
+        signals.async_wait(
+            boost::bind(&this_t::graceful_shutdown, this)
+        );
+    }
+
+    void graceful_shutdown() {
+        is_shutting_down = true;
+
+        FHTTP_LOG(INFO) << "Shutting down server gracefully in " << graceful_shutdown_seconds.total_seconds() << " seconds";
+        graceful_shutdown_timer = boost::asio::deadline_timer(io_service, graceful_shutdown_seconds);
+        graceful_shutdown_timer.async_wait(
+            boost::bind(&this_t::shutdown, this)
+        );
+    }
+
+    void shutdown() {
+        FHTTP_LOG(INFO) << "Shutting down server";
+        io_service.stop();
     }
 
     void initialize_global_state() {
@@ -368,7 +378,7 @@ struct server {
         );
     }
 
-    void start(std::size_t n_threads) {
+    void start() {
         for (std::size_t n = 0; n < n_threads; ++n) {
             threadpool.create_thread(
                 boost::bind(&boost::asio::io_service::run, &io_service)
@@ -377,6 +387,10 @@ struct server {
     }
 
     void handle_accept(const boost::system::error_code& e) {
+        if (is_shutting_down) {
+            return;
+        }
+
         if (!e) {
             connection_instance->start();
         }
@@ -388,6 +402,14 @@ struct server {
 
     void wait() {
         threadpool.join_all();
+    }
+
+    void set_graceful_shutdown_seconds(int seconds) {
+        graceful_shutdown_seconds = boost::posix_time::seconds(seconds);
+    }
+
+    void set_n_threads(size_t n) {
+        n_threads = n;
     }
 };
 

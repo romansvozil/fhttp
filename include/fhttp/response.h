@@ -13,6 +13,8 @@ using json_response = boost::json::object;
 
 template <typename body_t>
 struct response {
+    using body_type = body_t;
+
     int status_code{200};
     body_t body{};
     std::string version{"HTTP/1.1"};

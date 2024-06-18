@@ -7,6 +7,8 @@
 #include <fhttp/data/data.h>
 #include <fhttp/headers.h>
 #include <fhttp/status_codes.h>
+#include <fhttp/swagger_generator.h>
+#include <fhttp/data/json.h>
 
 
 namespace {
@@ -53,6 +55,13 @@ namespace example_fields {
     using profile_data = fhttp::datalib::data_pack<name, email>;
 
     using profile = fhttp::datalib::field<"profile", profile_data>;
+
+    namespace input {
+        using name = fhttp::datalib::field<"name", std::string>;
+    }
+
+    using profile_request = fhttp::datalib::data_pack<input::name>;
+    using echo_request = fhttp::datalib::data_pack<echo>;
 }
 
 namespace example_states {
@@ -132,7 +141,7 @@ struct profile_get_handler: public base_handler {
 
     example_states::fake_sql_manager& sql_manager;
 
-    using request_body_t = fhttp::json<request_json_params>;
+    using request_body_t = fhttp::json<example_fields::profile_request>;
     using response_body_t = example_fields::v1::json_response<example_fields::profile>;
 
     profile_get_handler(const server_config& config, views_shared_state state)
@@ -140,10 +149,11 @@ struct profile_get_handler: public base_handler {
         , sql_manager(std::get<example_states::fake_sql_manager>(state)) {}
 
     void handle(
-        const fhttp::request<request_body_t>&, 
+        const fhttp::request<request_body_t>& request,
         fhttp::response<response_body_t>& response
     ) {
-        const auto user = sql_manager.get_profile("Roman Svozil");
+        const auto user_name = request.body->get<example_fields::input::name>();
+        const auto user = sql_manager.get_profile(user_name);
 
         if (!user) {
             response.status_code = fhttp::STATUS_CODE_NOT_FOUND;
@@ -161,12 +171,16 @@ struct profile_get_handler: public base_handler {
 };
 
 struct echo_handler: public base_handler {
+    using request_t = fhttp::request<fhttp::json<example_fields::echo_request>>;
+
+    constexpr static const char* description = "Echo handler";
+
     echo_handler(const server_config& config, views_shared_state state)
         : base_handler(config, state) {}
 
-    void handle(const fhttp::request<fhttp::json_request>& request, fhttp::response<fhttp::json<example_fields::response_data>>& response) {
+    void handle(const request_t& request, fhttp::response<fhttp::json<example_fields::response_data>>& response) {
         response.headers[fhttp::HEADER_CONTENT_TYPE] = "application/json";
-        response.body->set<example_fields::echo>(request.body.get<std::string>("echo"));
+        response.body->set<example_fields::echo>(request.body->get<example_fields::echo>());
     }
 };
 
@@ -211,10 +225,10 @@ struct static_files_handler: public base_handler {
 };
 
 
-struct profile_view: public fhttp::view<
-    fhttp::route<"/echo", fhttp::method::post, echo_handler>,
-    fhttp::route<"/profile", fhttp::method::get, profile_get_handler>,
-    fhttp::route<"/static/(?<path>.*)", fhttp::method::get, static_files_handler>
+struct views: public fhttp::view<
+    fhttp::route<"/echo", fhttp::method::post, echo_handler>
+    , fhttp::route<"/profile", fhttp::method::get, profile_get_handler>
+    , fhttp::route<"/static/(?<path>.*)", fhttp::method::get, static_files_handler>
 > { };
 
 }
@@ -227,10 +241,19 @@ int main() {
         get_directory(__FILE__) + "/www/static/"
     };
 
-    fhttp::server<example_views::profile_view, server_config, example_views::views_shared_state>
+    fhttp::server<example_views::views, server_config, example_views::views_shared_state>
         server { "127.0.0.1", 11111, config };
+    
+    server.set_graceful_shutdown_seconds(2);
+    server.set_n_threads(128);
 
-    server.start(128*4);
+    FHTTP_LOG(INFO) << "Swagger:";
+    fhttp::datalib::utils::pretty_print(
+        FHTTP_LOG(INFO),
+        fhttp::swagger::generateV3<example_views::views>(
+            "Example API", "1.0"
+        )
+    );
 
     FHTTP_LOG(INFO) << "Waiting for connections";
     server.wait();

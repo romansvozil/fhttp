@@ -4,8 +4,6 @@
 
 #include <boost/json.hpp>
 
-#include "json.h"
-
 namespace json = boost::json;
 
 namespace fhttp {
@@ -13,14 +11,20 @@ namespace fhttp {
 namespace datalib {
 
 template <typename T>
-constexpr const char* type_name() {
+constexpr const char* type_name() requires requires { T::type_name; } {
     return T::type_name;
 }
 
-template<> constexpr const char* type_name<int>() { return "int"; }
-template<> constexpr const char* type_name<float>() { return "float"; }
-template<> constexpr const char* type_name<double>() { return "double"; }
+template <typename T>
+constexpr const char* type_name() {
+    return "unknown";
+}
+
+template<> constexpr const char* type_name<int>() { return "integer"; }
+template<> constexpr const char* type_name<float>() { return "number"; }
+template<> constexpr const char* type_name<double>() { return "number"; }
 template<> constexpr const char* type_name<std::string>() { return "string"; }
+template<> constexpr const char* type_name<bool>() { return "boolean"; }
 
 namespace internal {
 

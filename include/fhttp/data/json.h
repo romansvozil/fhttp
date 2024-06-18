@@ -7,32 +7,33 @@
 #include <optional>
 
 namespace fhttp {
+
 namespace datalib {
 
 namespace utils {
 
-void pretty_print(std::ostream& os, boost::json::value const& jv, std::string* indent);
+void pretty_print(std::ostream& os, boost::json::value const& jv, std::string* indent = nullptr);
 
 } // namespace utils
 
 namespace serialization {
 
 template <typename content_t>
-std::enable_if_t<!has_fields<content_t>::value, std::optional<boost::json::value>> to_json(const content_t& content) {
+inline std::enable_if_t<!has_fields<content_t>::value, std::optional<boost::json::value>> to_json(const content_t& content) {
     boost::json::value val;
     val = content;
     return val;
 }
 
 template <typename content_t>
-std::optional<boost::json::value> to_json(const std::vector<content_t>& content) {
+inline std::optional<boost::json::value> to_json(const std::vector<content_t>& content) {
     boost::json::array arr {content.begin(), content.end()};
 
     return arr;
 }
 
 template <typename content_t>
-std::optional<boost::json::value> to_json(const std::unordered_map<std::string, content_t>& content) {
+inline std::optional<boost::json::value> to_json(const std::unordered_map<std::string, content_t>& content) {
     boost::json::object obj_map;
 
     for (const auto& [key, value] : content) {
@@ -43,7 +44,7 @@ std::optional<boost::json::value> to_json(const std::unordered_map<std::string, 
 }
 
 template <typename content_t>
-std::enable_if_t<has_fields<content_t>::value, std::optional<boost::json::value>> to_json(const content_t& data_pack_content) {
+inline std::enable_if_t<has_fields<content_t>::value, std::optional<boost::json::value>> to_json(const content_t& data_pack_content) {
     boost::json::object obj;
 
     std::apply([&obj](auto&& ... args) {
@@ -59,32 +60,70 @@ std::enable_if_t<has_fields<content_t>::value, std::optional<boost::json::value>
 
 } // namespace serialization
 
-#if 0 // TODO: Finish this
+#if 1 // TODO: Finish this
 namespace deserialization {
 
 template <typename content_t>
-std::enable_if_t<!has_fields<content_t>::value, std::optional<content_t>> from_json(const boost::json::value& json_value) {
-    // TODO: here we will probably need to check if the json_value is of the same 
-    // type as content_t, and maybe create overloads for each json primitive
-    return json_value.as<content_t>();
-}
+inline std::optional<content_t> from_json(const boost::json::value& json_value) {
+    if constexpr (std::is_integral_v<content_t>) {
+        return { json_value.as_int64() };
+    } else if constexpr (std::is_floating_point_v<content_t>) {
+        return { json_value.as_double() };
+    } else if constexpr (std::is_same_v<content_t, std::string>) {
+        return std::make_optional<std::string>(json_value.as_string());
+    } else if constexpr (std::is_same_v<content_t, bool>) {
+        return { json_value.as_bool() };
+    } else {
+        content_t data_pack_content;
 
-template <typename content_t>
-std::optional<std::vector<content_t>> from_json(const boost::json::value& json_value) {
-    boost::json::array arr = json_value.as_array();
-    std::vector<content_t> out;
+        std::apply([&](auto&& ... args) {
+            ([&] {
+                using field_t = std::decay_t<decltype(args)>;
+                using field_value_t = typename field_t::value_type;
 
-    for (const auto& elem : arr) {
-        out.push_back(from_json<content_t>(elem));
+                if (const auto deserialized = from_json<field_value_t>(json_value.as_object().at(args.label)); deserialized) {
+                    data_pack_content.template set<field_t>({ *deserialized });
+                }
+            } (), ...);
+        }, data_pack_content.fields);
+
+        return std::make_optional(data_pack_content);
     }
-
-    return arr;
 }
+
+// template <typename content_t>
+// inline std::optional<std::vector<content_t>> from_json(const boost::json::value& json_value) {
+//     boost::json::array arr = json_value.as_array();
+//     std::vector<content_t> out;
+
+//     for (const auto& elem : arr) {
+//         out.push_back(from_json<content_t>(elem));
+//     }
+
+//     return arr;
+// }
+
+// template <typename content_t>
+// inline std::enable_if_t<has_fields<content_t>::value, std::optional<content_t>> from_json(const boost::json::value& json_value) {
+//     content_t data_pack_content;
+
+//     std::apply([&](auto&& ... args) {
+//         ([&] {
+//             using field_t = decltype(args);
+//             using field_value_t = typename field_t::value_type;
+
+//             if (const auto deserialized = from_json<field_value_t>(json_value.as_object()[args.label]); deserialized) {
+//                 data_pack_content.template set<field_t>(*deserialized);
+//             }
+//         } (), ...);
+//     }, data_pack_content.fields);
+
+//     return std::make_optional(data_pack_content);
+// }
 
 } // namespace deserialization
 #endif
 
 
 } // namespace datalib
-
 } // namespace fhttp

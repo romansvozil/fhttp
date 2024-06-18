@@ -11,8 +11,52 @@
 
 #include "meta.h"
 #include "cookies.h"
+#include "data/json.h"
 
 namespace fhttp {
+
+
+template <typename T>
+struct json {
+    using inner_t = T;
+    T data{};
+
+    constexpr const char* content_type() const {
+        return "application/json";
+    }
+
+    T* operator->() {
+        return &data;
+    }
+
+    const T* operator->() const {
+        return &data;
+    }
+};
+
+template <typename T>
+std::string get_content_type(const json<T>&) {
+    return "application/json";
+}
+
+template <typename T>
+std::string get_content_type(const T&) {
+    return "plain/text";
+}
+
+
+inline std::ostream& operator<<(std::ostream& os, const json<std::string>& json) {
+    os << json.data;
+    return os;
+}
+
+template <typename T>
+inline std::ostream& operator<<(std::ostream& os, const json<T>& value) {
+    if (const auto serialized = datalib::serialization::to_json(value.data); serialized) {
+        os << boost::json::serialize(*serialized);
+    }
+    return os;
+}
 
 using json_request = boost::property_tree::ptree;
 
@@ -49,6 +93,16 @@ struct request {
     boost::smatch url_matches{};
 };
 
+template <typename content_t>
+inline content_t from_string(const std::string& str) {
+    if constexpr (std::is_same_v<content_t, std::string>) {
+        return str;
+    } else {
+        boost::json::value jv = boost::json::parse(str);
+        return { *fhttp::datalib::deserialization::from_json<typename content_t::inner_t>(jv) };
+    }
+}
+
 template <typename body_t, typename query_params_t = void>
 inline request<body_t, query_params_t> convert_request(const request<std::string>& req) {
     request<body_t, query_params_t> new_req {};
@@ -62,19 +116,24 @@ inline request<body_t, query_params_t> convert_request(const request<std::string
     return new_req;
 }
 
-template <>
-inline boost::property_tree::ptree from_string(const std::string& str) {
-    std::stringstream ss {str};
-    boost::property_tree::ptree pt;
+// inline boost::property_tree::ptree from_string(const std::string& str) {
+//     std::stringstream ss {str};
+//     boost::property_tree::ptree pt;
 
-    try {
-        boost::property_tree::read_json(ss, pt);
-    } catch (const std::exception& e) {
-        // FHTTP_LOG(WARNING) << "Failed to parse json: " << e.what();
-        return {};
-    }
+//     try {
+//         boost::property_tree::read_json(ss, pt);
+//     } catch (const std::exception& e) {
+//         // FHTTP_LOG(WARNING) << "Failed to parse json: " << e.what();
+//         return {};
+//     }
 
-    return pt;
-}
+//     return pt;
+// }
+
+// template <typename content_t>
+// inline content_t from_string(const std::string& str) {
+//     boost::json::value jv = boost::json::parse(str);
+//     return fhttp::datalib::deserialization::from_json<content_t>(jv);
+// }
 
 }
