@@ -17,6 +17,8 @@ std::string get_directory(const std::string& file_path) {
 struct server_config {
     uint16_t app_port;
     std::string app_host;
+    size_t workers { 256 };
+    size_t graceful_shutdown_seconds { 4 };
 
     std::string mysql_connection_string { "mysql://localhost:3306" };
     int mysql_timeout { 10 };

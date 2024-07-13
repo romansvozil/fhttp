@@ -399,7 +399,7 @@ struct server {
         start_accept();
     }
 
-    void wait() {
+    void join() {
         threadpool.join_all();
     }
 

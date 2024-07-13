@@ -16,8 +16,8 @@ std::unique_ptr<server_t> configure_server(server_config& config) {
         config
     );
 
-    server->set_graceful_shutdown_seconds(4);
-    server->set_n_threads(128*2);
+    server->set_graceful_shutdown_seconds(config.graceful_shutdown_seconds);
+    server->set_n_threads(config.workers);
 
     return server;
 }
@@ -44,7 +44,7 @@ int main() {
     /* Start the server */
     server->start();
     FHTTP_LOG(INFO) << "Waiting for connections";
-    server->wait();
+    server->join();
     FHTTP_LOG(INFO) << "Server stopped";
 
     return 0;
