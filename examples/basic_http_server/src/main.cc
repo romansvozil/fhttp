@@ -16,14 +16,20 @@
 #include "views.h"
 #include "states.h"
 
-namespace {
+using server_t = fhttp::server<example_views::views, server_config, example_states::views_shared_state>;
 
-std::string get_directory(const std::string& file_path) {
-    std::filesystem::path path(file_path);
-    return path.parent_path().string();
+std::unique_ptr<server_t> configure_server(server_config& config) {
+    std::unique_ptr<server_t> server = std::make_unique<server_t>(
+        config.app_host,
+        config.app_port,
+        config
+    );
+
+    server->set_graceful_shutdown_seconds(4);
+    server->set_n_threads(128*2);
+
+    return server;
 }
-
-} // anonymous namespace
 
 int main() {
     // Initialize the configuration
@@ -39,23 +45,15 @@ int main() {
         swagger_json
     );
 
-    server_config config {
-        "mysql://localhost:3306", 10,
-        "redis://localhost:6379", 5,
-        get_directory(__FILE__) + "/www/static/",
-        boost::json::serialize(swagger_json)
-    };
+    server_config config { };
+    config.swagger_json = boost::json::serialize(swagger_json);
 
     // Initialize the server
-    fhttp::server<example_views::views, server_config, example_states::views_shared_state>
-        server { "127.0.0.1", fhttp::get_env_mandatory<uint16_t>("app_port"), config };
-    
-    server.set_graceful_shutdown_seconds(4);
-    server.set_n_threads(128*2);
+    auto server = configure_server(config);
 
-    server.start();
+    server->start();
     FHTTP_LOG(INFO) << "Waiting for connections";
-    server.wait();
+    server->wait();
     FHTTP_LOG(INFO) << "Server stopped";
 
     return 0;
