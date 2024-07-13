@@ -120,10 +120,10 @@ private:
 
 
 template <typename... Ts>
-struct view;
+struct router;
 
 template <typename route_t, typename ... Ts>
-struct view<route_t, Ts...> : public view<Ts...> {
+struct router<route_t, Ts...> : public router<Ts...> {
     using route_ts = std::tuple<route_t, Ts...>;
     
     route_t route_instance;
@@ -134,12 +134,12 @@ struct view<route_t, Ts...> : public view<Ts...> {
             return true;
         }
 
-        return view<Ts...>::handle_request(req, resp, global_data, config);
+        return router<Ts...>::handle_request(req, resp, global_data, config);
     }
 };
 
 template <>
-struct view<> {
+struct router<> {
     template <typename global_data_t, typename config_t>
     bool handle_request(request<std::string>&, response<std::string>&, global_data_t&, const config_t&) const {
         return false;
@@ -289,14 +289,14 @@ auto create_tuple_from_types(const config_t& config) {
     return create_tuple_from_types<Tuple, config_t>(config, std::make_index_sequence<N>{});
 }
 
-template <typename view_t, typename config_t = none_config, typename global_state_tuple_t = std::tuple<>, typename thread_local_state_tuple_t = std::tuple<>>
+template <typename router_t, typename config_t = none_config, typename global_state_tuple_t = std::tuple<>, typename thread_local_state_tuple_t = std::tuple<>>
 struct server {
     const config_t& config { };
     boost::asio::io_service io_service;
     boost::asio::ip::tcp::acceptor acceptor;
     boost::thread_group threadpool;
     std::shared_ptr<connection> connection_instance;
-    view_t view_instance { };
+    router_t router_instance { };
     
     /* Shutdown related */
     boost::posix_time::seconds graceful_shutdown_seconds { 0 };
@@ -309,21 +309,21 @@ struct server {
     std::optional<global_state_tuple_t> global_state { };
 
     template <typename ... global_state_ts>
-    using with_global_state = server<view_t, config_t, std::tuple<global_state_ts ...>, thread_local_state_tuple_t>;
+    using with_global_state = server<router_t, config_t, std::tuple<global_state_ts ...>, thread_local_state_tuple_t>;
 
     template <typename ... thread_local_state_ts>
-    using with_thread_local_state = server<view_t, config_t, global_state_tuple_t, std::tuple<thread_local_state_ts ...>>;
+    using with_thread_local_state = server<router_t, config_t, global_state_tuple_t, std::tuple<thread_local_state_ts ...>>;
 
     template <typename new_config_t>
-    using with_config = server<view_t, new_config_t, global_state_tuple_t, thread_local_state_tuple_t>;
+    using with_config = server<router_t, new_config_t, global_state_tuple_t, thread_local_state_tuple_t>;
 
-    using this_t = server<view_t, config_t, global_state_tuple_t, thread_local_state_tuple_t>;
+    using this_t = server<router_t, config_t, global_state_tuple_t, thread_local_state_tuple_t>;
 
     server(const std::string& host, const uint16_t port, const config_t& config = config_t { }) : 
         config { config },
         acceptor { io_service },
         connection_instance { std::make_shared<connection>(io_service, [this] (request<std::string>& req, response<std::string>& resp) {
-            if (not view_instance.handle_request(req, resp, unwrap_ref(global_state), this->config)) {
+            if (not router_instance.handle_request(req, resp, unwrap_ref(global_state), this->config)) {
                 resp.status_code = 404;
                 resp.body = "Not found";
                 std::cout << "No handler found for path: " << req.path << std::endl;
@@ -394,7 +394,7 @@ struct server {
             connection_instance->start();
         }
         connection_instance = std::make_shared<connection>(io_service, [this] (request<std::string>& req, response<std::string>& resp) {
-            return view_instance.handle_request(req, resp, unwrap_ref(global_state), this->config);
+            return router_instance.handle_request(req, resp, unwrap_ref(global_state), this->config);
         });
         start_accept();
     }

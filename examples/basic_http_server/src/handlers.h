@@ -5,7 +5,6 @@
 #include <fhttp/data/data.h>
 #include <fhttp/headers.h>
 #include <fhttp/status_codes.h>
-#include <fhttp/swagger_generator.h>
 #include <fhttp/data/json.h>
 
 #include "states.h"
@@ -137,7 +136,7 @@ struct open_api_json_handler: public base_handler {
     }
 };
 
-struct views: public fhttp::view<
+struct router: public fhttp::router<
     fhttp::route<"/echo", fhttp::method::post, echo_handler>
     , fhttp::route<"/profile", fhttp::method::get, profile_get_handler>
     , fhttp::route<"/static/(?<path>.*)", fhttp::method::get, static_files_handler>

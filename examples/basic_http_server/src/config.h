@@ -2,6 +2,8 @@
 
 #include <string>
 
+#include <fhttp/env.h>
+
 namespace {
 
 std::string get_directory(const std::string& file_path) {
