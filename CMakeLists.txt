@@ -3,9 +3,6 @@ cmake_minimum_required(VERSION 3.28)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Specify the C++ compiler (Clang++)
-# set(CMAKE_CXX_COMPILER "/opt/homebrew/opt/llvm/bin/clang++")
-
 # Specify the minimum compiler version that supports C++23
 set(CMAKE_CXX_COMPILER_VERSION 17.0) # Update this based on your actual compiler version
 
@@ -29,7 +26,7 @@ if(Boost_FOUND)
     target_link_libraries(fhttplib ${Boost_LIBRARIES})
 endif()
 
-add_subdirectory(examples)
+add_subdirectory(examples/basic_http_server)
 
 # add_executable(cpp-playground src/cpp_playground.cc src/request_parser.cc src/data/json.cc)
 # target_compile_features(cpp-playground PUBLIC cxx_std_23)

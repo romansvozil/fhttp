@@ -1,0 +1,2 @@
+# Tests
+Since the library is going through pretty significant changes over time, it doesn't feel like there is really reason for having tests atm, but should be implemented later on when the interfaces get stable.

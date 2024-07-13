@@ -1,3 +1,3 @@
-add_executable(basic_http_server basic_http_server.cc)
+add_executable(basic_http_server src/main.cc)
 target_link_libraries(basic_http_server PRIVATE fhttplib)
 set_target_properties(basic_http_server PROPERTIES CXX_STANDARD 23)

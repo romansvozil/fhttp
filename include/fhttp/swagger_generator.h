@@ -1,3 +1,5 @@
+#pragma once
+
 #include "http_server.h"
 
 #include <boost/json.hpp>

@@ -1,3 +1,5 @@
+#pragma once
+
 namespace fhttp {
     // Status codes
     inline constexpr int STATUS_CODE_OK = 200;

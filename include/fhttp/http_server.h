@@ -283,7 +283,6 @@ auto create_tuple_from_types(const config_t& config, std::index_sequence<Is...>)
     return std::make_tuple(unwrap(create_state<std::tuple_element_t<Is, Tuple>, config_t>(config))...);
 }
 
-// Main function to create the tuple
 template<typename Tuple, typename config_t>
 auto create_tuple_from_types(const config_t& config) {
     constexpr std::size_t N = std::tuple_size_v<Tuple>;

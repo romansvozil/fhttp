@@ -1,3 +1,7 @@
+#pragma once
+
+/* TODO: TO BE REMOVED */
+
 #include "datalib.h"
 #include "logging.h"
 
