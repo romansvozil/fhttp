@@ -18,7 +18,7 @@ namespace example_fields {
         using super::super;
 
         response() {
-            // TODO: what is this syntax???
+            // TODO: somehow fix this ugly thing
             this->template set<version>("1.0");
         }
 

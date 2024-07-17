@@ -68,7 +68,7 @@ struct route {
     static constexpr method method_value = method_;
 
     template <typename global_data_t, typename config_t>
-    constexpr bool handle_request(request<std::string>& req, response<std::string>& resp, global_data_t& global_data, const config_t& config) const {
+    constexpr static bool handle_request(request<std::string>& req, response<std::string>& resp, global_data_t& global_data, const config_t& config) {
         const auto [matched, regex_groups] = matches(req.path, req.method);
         if (not matched) {
             return false;
@@ -99,7 +99,7 @@ struct route {
     }
 
 private:
-    std::pair<bool, boost::smatch> matches(const std::string& path_to_match, method method) const {
+    static std::pair<bool, boost::smatch> matches(const std::string& path_to_match, method method) {
         boost::smatch what;
 
         if (method != method_value) {
@@ -126,11 +126,9 @@ template <typename route_t, typename ... Ts>
 struct router<route_t, Ts...> : public router<Ts...> {
     using route_ts = std::tuple<route_t, Ts...>;
     
-    route_t route_instance;
-
     template <typename global_data_t, typename config_t>
     bool handle_request(request<std::string>& req, response<std::string>& resp, global_data_t& global_data, const config_t& config) const {
-        if (route_instance.handle_request(req, resp, global_data, config)) {
+        if (route_t::handle_request(req, resp, global_data, config)) {
             return true;
         }
 
@@ -242,6 +240,7 @@ struct connection : std::enable_shared_from_this<connection> {
 
     void post_response_sent(const boost::system::error_code& e) {
         if (e or should_stop) {
+            socket.close();
             return;
         }
 

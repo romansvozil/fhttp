@@ -7,7 +7,7 @@
 #include "handlers.h"
 #include "states.h"
 
-using server_t = fhttp::server<example_views::router, server_config, example_states::views_shared_state>;
+using server_t = fhttp::server<example_views::root_router, server_config, example_states::views_shared_state>;
 
 std::unique_ptr<server_t> configure_server(server_config& config) {
     auto server = std::make_unique<server_t>(
@@ -25,7 +25,7 @@ std::unique_ptr<server_t> configure_server(server_config& config) {
 int main() {
     /* Generate swagger documentation */
     FHTTP_LOG(INFO) << "Swagger:";
-    const auto swagger_json = fhttp::swagger::generateV3<example_views::router>(
+    const auto swagger_json = fhttp::swagger::generateV3<example_views::root_router>(
         "Example API", "1.0"
     );
 

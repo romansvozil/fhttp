@@ -43,10 +43,13 @@ struct label_literal {
 
 }; // namespace internal
 
+struct data_pack_base {};
+
 template <internal::label_literal label_value, typename _value_type, internal::label_literal description_value = "">
 struct field {
 public:
     using value_type = _value_type;
+    static constexpr bool has_value_type_data_pack = std::is_base_of_v<data_pack_base, value_type>;
 
     constexpr field() = default;
     constexpr field(const value_type& value) : value(value) {}
@@ -64,7 +67,7 @@ public:
 #define FHTTP_FIELD(field_type_name, label, value_type) struct field_type_name : fhttp::datalib::field<label, value_type> {  }
 
 template <typename ... _types>
-struct data_pack {
+struct data_pack: data_pack_base {
     using tuple_type_t = std::tuple<_types...>;
 
     constexpr data_pack() = default;

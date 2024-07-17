@@ -13,14 +13,9 @@ namespace example_views {
 
 
 /// @brief Create base of our handlers with the server configuration
-struct base_handler: public fhttp::http_handler<server_config, example_states::views_shared_state> {
-    using super = fhttp::http_handler<server_config, example_states::views_shared_state>;
+using base_handler = fhttp::http_handler<server_config, example_states::views_shared_state>;
 
-    base_handler(const server_config& config, example_states::views_shared_state state)
-        : super(config, state) {}
-};
-
-struct profile_get_handler: public base_handler {
+struct profile_post_handler: public base_handler {
     constexpr static const char* description = "Get profile";
 
     example_states::fake_sql_manager& sql_manager;
@@ -28,7 +23,7 @@ struct profile_get_handler: public base_handler {
     using request_body_t = fhttp::json<example_fields::profile_request>;
     using response_body_t = example_fields::v1::json_response<example_fields::profile>;
 
-    profile_get_handler(const server_config& config, example_states::views_shared_state state)
+    profile_post_handler(const server_config& config, example_states::views_shared_state state)
         : base_handler(config, state)
         , sql_manager(std::get<example_states::fake_sql_manager>(state)) {}
 
@@ -37,7 +32,7 @@ struct profile_get_handler: public base_handler {
         fhttp::response<response_body_t>& response
     ) {
         const auto user_name = request.body->get<example_fields::input::name>();
-        const auto user = sql_manager.get_profile(user_name);
+        const auto user = sql_manager.create_profile(user_name);
 
         if (!user) {
             response.status_code = fhttp::STATUS_CODE_NOT_FOUND;
@@ -103,6 +98,7 @@ struct static_files_handler: public base_handler {
         if (response.body.empty()) {
             response.status_code = fhttp::STATUS_CODE_NOT_FOUND;
         } else {
+            response.status_code = fhttp::STATUS_CODE_OK;
             response.headers[fhttp::HEADER_CONTENT_TYPE] = "text/html";
         }
     }
@@ -136,12 +132,12 @@ struct open_api_json_handler: public base_handler {
     }
 };
 
-struct router: public fhttp::router<
-    fhttp::route<"/echo", fhttp::method::post, echo_handler>
-    , fhttp::route<"/profile", fhttp::method::get, profile_get_handler>
-    , fhttp::route<"/static/(?<path>.*)", fhttp::method::get, static_files_handler>
-    , fhttp::route<"/hello", fhttp::method::get, hello_handler>
-    , fhttp::route<"/openapi.json", fhttp::method::get, open_api_json_handler>
-> { };
+using root_router = fhttp::router<
+    fhttp::route<"/echo",                   fhttp::method::post,    echo_handler>
+    , fhttp::route<"/profile",              fhttp::method::post,    profile_post_handler>
+    , fhttp::route<"/static/(?<path>.*)",   fhttp::method::get,     static_files_handler>
+    , fhttp::route<"/hello",                fhttp::method::get,     hello_handler>
+    , fhttp::route<"/openapi.json",         fhttp::method::get,     open_api_json_handler>
+>;
 
 } // namespace example_views

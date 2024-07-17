@@ -17,57 +17,58 @@ std::string to_lower(const std::string& str) {
 
 }
 
-/* Helper template for determining if the type is json */
-template <typename T>
-struct is_json : std::false_type {};
-
-template <typename T>
-struct is_json<json<T>> : std::true_type {};
+/* === FORWARD DECLERATIONS generate_content_definition === */
+template <typename inner_json_t>
+inline void generate_content_definition(boost::json::object& schema, const json<inner_json_t>&);
 
 template <typename inner_json_t>
-inline boost::json::object generate_content_definition(const json<inner_json_t>&) {
-    /*
-    requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                username:
-                  type: string
-    */
+inline std::enable_if_t<has_fields<inner_json_t>::value, void> generate_content_definition(boost::json::object& schema, const inner_json_t&);
 
-    boost::json::object request_body;
-    boost::json::object content;
-    boost::json::object request_type;
-    boost::json::object schema;
+
+/* === IMPLEMENTATIONS generate_content_definition ===*/
+template <typename field_t>
+inline void generate_content_definition(boost::json::object& schema, const field_t&) requires requires {
+    typename field_t::value_type::tuple_type_t;
+} {
+    generate_content_definition(schema, typename field_t::value_type{});
+}
+
+template <typename field_t>
+inline std::enable_if_t<!field_t::has_value_type_data_pack, void> generate_content_definition(boost::json::object& schema, const field_t&) requires requires {
+    field_t::field_type_name();
+} {
+    schema["type"] = boost::json::string{field_t::field_type_name()};
+}
+
+template <typename inner_json_t>
+inline std::enable_if_t<has_fields<inner_json_t>::value, void> generate_content_definition(boost::json::object& schema, const inner_json_t&) {
     boost::json::object properties;
 
     std::apply([&properties](auto&& ... args) {
         ([&] {
-            properties[args.label] = boost::json::object {
-                {"type", args.field_type_name()},
+            boost::json::object property = {
                 {"description", args.description}
             };
+            generate_content_definition(property, args);
+            properties[args.label] = property;
         } (), ...);
     }, typename inner_json_t::tuple_type_t {});
 
     // TODO: also implement for arrays
     schema["properties"] = properties;
     schema["type"] = "object";
-    request_type["schema"] = schema;
-    content["application/json"] = request_type;
-    request_body["content"] = content;
+    FHTTP_LOG(INFO) << "Generating content definition for object";
+}
 
-    return request_body;
+template <typename inner_json_t>
+inline void generate_content_definition(boost::json::object& schema, const json<inner_json_t>&) {
+    generate_content_definition(schema, inner_json_t{});
 }
 
 template <typename request_t>
-inline boost::json::object generate_content_definition(const request_t&) {
+inline void generate_content_definition(boost::json::object&, const request_t&) {
     // TODO: define as unknown
-    FHTTP_LOG(INFO) << "Generating request body definition for unknown type";
-    return {};
+    FHTTP_LOG(INFO) << "Generating request body definition for unknown type" << typeid(request_t).name();
 }
 
 template <typename view_t>
@@ -116,7 +117,18 @@ boost::json::value generateV3(
 
                     // TODO: somehow get the other possible status codes
                     const typename response_t::body_type response_t_instance{};
-                    responses["200"] = generate_content_definition(response_t_instance);
+
+                    boost::json::object response_body;
+                    boost::json::object content;
+                    boost::json::object request_type;
+                    boost::json::object schema;
+
+                    generate_content_definition(schema, response_t_instance);
+
+                    request_type["schema"] = schema;
+                    content["application/json"] = request_type;
+                    response_body["content"] = content;
+                    responses["200"] = response_body;
 
                     return responses;
                 };
@@ -127,7 +139,19 @@ boost::json::value generateV3(
 
                 if (route.method_value == method::post || route.method_value == method::put || route.method_value == method::patch) {
                     const typename request_t::body_type request_t_instance{};
-                    node["requestBody"] =  generate_content_definition(request_t_instance);
+                    
+                    boost::json::object request_body;
+                    boost::json::object content;
+                    boost::json::object request_type;
+                    boost::json::object schema;
+
+                    generate_content_definition(schema, request_t_instance);
+
+                    request_type["schema"] = schema;
+                    content["application/json"] = request_type;
+                    request_body["content"] = content;
+                    
+                    node["requestBody"] = request_body;
                 }
 
                 node["summary"] = std::format("{} {}", method_to_string(route.method_value), path);

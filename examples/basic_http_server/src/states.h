@@ -28,10 +28,10 @@ struct fake_sql_manager {
         std::string email;
     };
 
-    /// @brief Get profile by name
+    /// @brief Create and get profile by name
     /// @param name 
     /// @return profile
-    std::optional<profile> get_profile(const std::string& name) {
+    std::optional<profile> create_profile(const std::string& name) {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
      
         return profile { name, name + "@example.com" };
