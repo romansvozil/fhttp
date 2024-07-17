@@ -17,6 +17,11 @@ std::string to_lower(const std::string& str) {
 
 }
 
+/*
+    TODO:
+    - Add support for arrays
+*/
+
 /* === FORWARD DECLERATIONS generate_content_definition === */
 template <typename inner_json_t>
 inline void generate_content_definition(boost::json::object& schema, const json<inner_json_t>&);
@@ -57,7 +62,6 @@ inline std::enable_if_t<has_fields<inner_json_t>::value, void> generate_content_
     // TODO: also implement for arrays
     schema["properties"] = properties;
     schema["type"] = "object";
-    FHTTP_LOG(INFO) << "Generating content definition for object";
 }
 
 template <typename inner_json_t>

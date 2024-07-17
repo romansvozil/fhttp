@@ -12,6 +12,7 @@
 - Graceful shutdown
 - Regex pattern within URLs
 - Currently supports only HTTP version 1.*
+- Keep-alive
 
 # todo
 - tests

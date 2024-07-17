@@ -154,7 +154,10 @@ namespace fhttp {
 
 struct connection : std::enable_shared_from_this<connection> {
     boost::asio::io_service& io_service;
+
+    /* NOTE: for now unused, since I don't think there are any possibly conflicting operations that would need it */
     boost::asio::io_service::strand strand;
+
     boost::asio::ip::tcp::socket socket;
     std::array<char, 1024*8> buffer {  };
     request<std::string> current_request { };
@@ -162,11 +165,16 @@ struct connection : std::enable_shared_from_this<connection> {
     std::function<void(request<std::string>&, response<std::string>&)> handle_request;
     bool should_stop { false };
 
-    connection(boost::asio::io_service& io_service, std::function<void(request<std::string>&, response<std::string>&)>&& handle_request) : 
-        io_service { io_service },
-        strand { io_service },
-        socket { io_service },
-        handle_request { handle_request }
+    boost::asio::steady_timer keep_alive_timer;
+    bool is_keep_alive_timer_running { false };
+    std::chrono::steady_clock::duration keep_alive_timeout { };
+
+    connection(boost::asio::io_service& io_service, std::function<void(request<std::string>&, response<std::string>&)>&& handle_request)
+        : io_service { io_service }
+        , strand { io_service }
+        , socket { io_service }
+        , handle_request { handle_request }
+        , keep_alive_timer { io_service }
     { }
 
     void start() {
@@ -178,9 +186,19 @@ struct connection : std::enable_shared_from_this<connection> {
                 boost::asio::placeholders::bytes_transferred));
     }
 
+    void set_keep_alive_timeout(std::chrono::steady_clock::duration timeout) {
+        keep_alive_timeout = timeout;
+    }
+
+private:
+
     void handle_read(const boost::system::error_code& e, std::size_t bytes_read) {
         if (e) {
             return;
+        }
+
+        if (is_keep_alive_timer_running) {
+            stop_keep_alive_timer();
         }
 
         boost::tribool result;
@@ -215,16 +233,16 @@ struct connection : std::enable_shared_from_this<connection> {
 
             const auto response_string = response.to_string();
             boost::asio::async_write(socket, boost::asio::buffer(response_string.data(), response_string.size()),
-                    boost::bind(&connection::post_response_sent, shared_from_this(),
-                    boost::asio::placeholders::error));
+                boost::bind(&connection::post_response_sent, shared_from_this(),
+                boost::asio::placeholders::error));
 
         } else if (!result) {
             listen_again();
         } else {
             socket.async_read_some(boost::asio::buffer(buffer),
-                    boost::bind(&connection::handle_read, shared_from_this(),
-                    boost::asio::placeholders::error,
-                    boost::asio::placeholders::bytes_transferred));
+                boost::bind(&connection::handle_read, shared_from_this(),
+                boost::asio::placeholders::error,
+                boost::asio::placeholders::bytes_transferred));
         }
     }
 
@@ -233,18 +251,56 @@ struct connection : std::enable_shared_from_this<connection> {
         parser.reset();
         
         socket.async_read_some(boost::asio::buffer(buffer),
-                boost::bind(&connection::handle_read, shared_from_this(),
-                boost::asio::placeholders::error,
-                boost::asio::placeholders::bytes_transferred));
+            boost::bind(&connection::handle_read, shared_from_this(),
+            boost::asio::placeholders::error,
+            boost::asio::placeholders::bytes_transferred));
     }
 
     void post_response_sent(const boost::system::error_code& e) {
         if (e or should_stop) {
-            socket.close();
+            close_socket();
             return;
         }
 
+        start_keep_alive_timer();
         listen_again();
+    }
+
+    void close_socket() {
+        boost::system::error_code ignored_ec;
+        socket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ignored_ec);
+        socket.close(ignored_ec);
+    }
+
+    void handle_keep_alive_timeout(const boost::system::error_code& e) {
+        if (e) {
+            return;
+        }
+
+        boost::system::error_code remote_endpoint_ec;
+
+        const auto remote_endpoint = socket.remote_endpoint(remote_endpoint_ec);
+        std::string remote_endpoint_str;
+        if (remote_endpoint_ec) {
+            remote_endpoint_str = "unknown";
+        } else {
+            remote_endpoint_str = remote_endpoint.address().to_string();
+        }
+        FHTTP_LOG(INFO) << "Connection is going to be closed due to keep-alive timeout [ip: " << remote_endpoint_str << "]";
+        close_socket();
+    }
+
+    void start_keep_alive_timer() {
+        is_keep_alive_timer_running = true;
+        keep_alive_timer.expires_after(keep_alive_timeout);
+        keep_alive_timer.async_wait(
+            boost::bind(&connection::handle_keep_alive_timeout, shared_from_this(), boost::asio::placeholders::error)
+        );
+    }
+
+    void stop_keep_alive_timer() {
+        is_keep_alive_timer_running = false;
+        keep_alive_timer.cancel();
     }
 };
 
@@ -302,6 +358,8 @@ struct server {
     bool is_shutting_down { false };
     boost::asio::signal_set signals;
     boost::asio::deadline_timer graceful_shutdown_timer;
+
+    std::chrono::steady_clock::duration keep_alive_timeout { };
 
     size_t n_threads { 1 };
 
@@ -390,6 +448,7 @@ struct server {
         }
 
         if (!e) {
+            connection_instance->set_keep_alive_timeout(keep_alive_timeout);
             connection_instance->start();
         }
         connection_instance = std::make_shared<connection>(io_service, [this] (request<std::string>& req, response<std::string>& resp) {
@@ -408,6 +467,10 @@ struct server {
 
     void set_n_threads(size_t n) {
         n_threads = n;
+    }
+
+    void set_keep_alive_timeout(std::chrono::steady_clock::duration timeout) {
+        keep_alive_timeout = timeout;
     }
 };
 
