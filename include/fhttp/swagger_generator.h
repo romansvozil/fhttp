@@ -17,18 +17,27 @@ std::string to_lower(const std::string& str) {
 
 }
 
+template<typename Test, template<typename...> class Ref>
+struct is_specialization : std::false_type {};
+
+template<template<typename...> class Ref, typename... Args>
+struct is_specialization<Ref<Args...>, Ref>: std::true_type {};
+
+
 /*
     TODO:
     - Add support for arrays
 */
 
 /* === FORWARD DECLERATIONS generate_content_definition === */
+// template <typename inner_vector_t>
+// inline void generate_content_definition(boost::json::object& schema, const std::vector<inner_vector_t>&);
+
 template <typename inner_json_t>
 inline void generate_content_definition(boost::json::object& schema, const json<inner_json_t>&);
 
 template <typename inner_json_t>
 inline std::enable_if_t<has_fields<inner_json_t>::value, void> generate_content_definition(boost::json::object& schema, const inner_json_t&);
-
 
 /* === IMPLEMENTATIONS generate_content_definition ===*/
 template <typename field_t>
@@ -42,7 +51,15 @@ template <typename field_t>
 inline std::enable_if_t<!field_t::has_value_type_data_pack, void> generate_content_definition(boost::json::object& schema, const field_t&) requires requires {
     field_t::field_type_name();
 } {
-    schema["type"] = boost::json::string{field_t::field_type_name()};
+    if constexpr (is_specialization<typename field_t::value_type, std::vector>::value) {
+        boost::json::object items;
+        generate_content_definition(items, typename field_t::value_type::value_type{});
+        schema["items"] = items;
+        schema["type"] = "array";
+    } else {
+        schema["type"] = boost::json::string{field_t::field_type_name()};
+    }
+
 }
 
 template <typename inner_json_t>
@@ -59,7 +76,6 @@ inline std::enable_if_t<has_fields<inner_json_t>::value, void> generate_content_
         } (), ...);
     }, typename inner_json_t::tuple_type_t {});
 
-    // TODO: also implement for arrays
     schema["properties"] = properties;
     schema["type"] = "object";
 }
@@ -68,6 +84,15 @@ template <typename inner_json_t>
 inline void generate_content_definition(boost::json::object& schema, const json<inner_json_t>&) {
     generate_content_definition(schema, inner_json_t{});
 }
+
+// template <typename inner_vector_t>
+// inline void generate_content_definition(boost::json::object& schema, const std::vector<inner_vector_t>&) {
+//     FHTTP_LOG(INFO) << "Generating array definition";
+//     boost::json::object items;
+//     generate_content_definition(items, inner_vector_t{});
+//     schema["items"] = items;
+//     schema["type"] = "array";
+// }
 
 template <typename request_t>
 inline void generate_content_definition(boost::json::object&, const request_t&) {

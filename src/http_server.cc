@@ -2,12 +2,13 @@
 
 namespace fhttp {
 
-connection::connection(boost::asio::io_service& io_service, std::function<void(request<std::string>&, response<std::string>&)>&& handle_request)
+connection::connection(boost::asio::io_service& io_service, std::function<void(request<std::string>&, response<std::string>&)>&& handle_request, const std::string& server_header)
     : io_service { io_service }
     , strand { io_service }
     , socket { io_service }
     , handle_request { handle_request }
     , keep_alive_timer { io_service }
+    , server_header { server_header }
 { }
 
 void connection::start() {
@@ -43,6 +44,8 @@ void connection::handle_read(const boost::system::error_code& e, std::size_t byt
         if (current_request.headers.count("Cookie")) {
             current_request.cookies.parse(current_request.headers["Cookie"]);
         }
+
+        response.headers["Server"] = server_header;
 
         try {
             handle_request(current_request, response);

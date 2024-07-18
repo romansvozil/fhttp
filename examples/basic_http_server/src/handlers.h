@@ -36,6 +36,7 @@ struct profile_post_handler: public base_handler {
 
         if (!user) {
             response.status_code = fhttp::STATUS_CODE_NOT_FOUND;
+            response.body->set<example_fields::status>(fhttp::STATUS_CODE_NOT_FOUND);
             return;
         }
 
@@ -43,6 +44,44 @@ struct profile_post_handler: public base_handler {
 
         result.set<example_fields::name>(user->name);
         result.set<example_fields::email>(user->email);
+
+        response.headers[fhttp::HEADER_CONTENT_TYPE] = "application/json";
+        response.body->set<example_fields::status>(fhttp::STATUS_CODE_OK);
+    }
+};
+
+struct get_all_profiles_handler: public base_handler {
+    constexpr static const char* description = "Get all profiles";
+
+    example_states::fake_sql_manager& sql_manager;
+
+    using request_body_t = std::string;
+    using response_body_t = example_fields::v1::json_response<example_fields::profiles>;
+
+    get_all_profiles_handler(const server_config& config, example_states::views_shared_state state)
+        : base_handler(config, state)
+        , sql_manager(std::get<example_states::fake_sql_manager>(state)) {}
+
+    void handle(
+        const fhttp::request<request_body_t>&,
+        fhttp::response<response_body_t>& response
+    ) {
+        const auto users = sql_manager.get_all_profiles();
+
+        if (users.empty()) {
+            response.status_code = fhttp::STATUS_CODE_NOT_FOUND;
+            response.body->set<example_fields::status>(fhttp::STATUS_CODE_NOT_FOUND);
+            return;
+        }
+
+        auto& result_profiles = response.body->get<example_fields::profiles>();
+
+        for (const auto& profile: users) {
+            example_fields::profile_data profile_data;
+            profile_data.set<example_fields::name>(profile.name);
+            profile_data.set<example_fields::email>(profile.email);
+            result_profiles.push_back(profile_data);
+        }
 
         response.headers[fhttp::HEADER_CONTENT_TYPE] = "application/json";
         response.body->set<example_fields::status>(fhttp::STATUS_CODE_OK);
@@ -135,6 +174,7 @@ struct open_api_json_handler: public base_handler {
 using root_router = fhttp::router<
     fhttp::route<"/echo",                   fhttp::method::post,    echo_handler>
     , fhttp::route<"/profile",              fhttp::method::post,    profile_post_handler>
+    , fhttp::route<"/profile/all",          fhttp::method::post,    get_all_profiles_handler>
     , fhttp::route<"/static/(?<path>.*)",   fhttp::method::get,     static_files_handler>
     , fhttp::route<"/hello",                fhttp::method::get,     hello_handler>
     , fhttp::route<"/openapi.json",         fhttp::method::get,     open_api_json_handler>

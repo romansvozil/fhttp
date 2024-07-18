@@ -18,6 +18,21 @@ void pretty_print(std::ostream& os, boost::json::value const& jv, std::string* i
 
 namespace serialization {
 
+/* Template to_json definitions */
+template <typename content_t>
+inline std::enable_if_t<!has_fields<content_t>::value, std::optional<boost::json::value>> to_json(const content_t& content);
+
+template <typename content_t>
+inline std::optional<boost::json::value> to_json(const std::vector<content_t>& content);
+
+template <typename content_t>
+inline std::optional<boost::json::value> to_json(const std::unordered_map<std::string, content_t>& content);
+
+template <typename content_t>
+inline std::enable_if_t<has_fields<content_t>::value, std::optional<boost::json::value>> to_json(const content_t& data_pack_content);
+
+/* Template to_json implementations */
+
 template <typename content_t>
 inline std::enable_if_t<!has_fields<content_t>::value, std::optional<boost::json::value>> to_json(const content_t& content) {
     boost::json::value val;
@@ -27,7 +42,11 @@ inline std::enable_if_t<!has_fields<content_t>::value, std::optional<boost::json
 
 template <typename content_t>
 inline std::optional<boost::json::value> to_json(const std::vector<content_t>& content) {
-    boost::json::array arr {content.begin(), content.end()};
+    boost::json::array arr { };
+
+    for (const auto& value: content) {
+        arr.push_back(*to_json(value));
+    }
 
     return arr;
 }

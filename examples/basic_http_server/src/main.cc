@@ -19,6 +19,7 @@ std::unique_ptr<server_t> configure_server(server_config& config) {
     server->set_graceful_shutdown_seconds(config.graceful_shutdown_seconds);
     server->set_n_threads(config.workers);
     server->set_keep_alive_timeout(std::chrono::seconds(3));
+    server->set_server_header("Example API");
 
     return server;
 }

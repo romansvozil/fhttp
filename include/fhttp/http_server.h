@@ -58,6 +58,7 @@ struct http_handler {
         , config(config)
     {
     }
+
 };
 
 
@@ -146,14 +147,12 @@ struct router<> {
 
 }
 
-struct request_json_params {};
 struct query_params {};
-struct profile_entity {};
 
 namespace fhttp {
 
 struct connection : std::enable_shared_from_this<connection> {
-    connection(boost::asio::io_service& io_service, std::function<void(request<std::string>&, response<std::string>&)>&& handle_request);
+    connection(boost::asio::io_service& io_service, std::function<void(request<std::string>&, response<std::string>&)>&& handle_request, const std::string& server_header);
     void start();
     void set_keep_alive_timeout(std::chrono::steady_clock::duration timeout);
     boost::asio::ip::tcp::socket& get_socket();
@@ -183,6 +182,7 @@ private:
     boost::asio::steady_timer keep_alive_timer;
     bool is_keep_alive_timer_running { false };
     std::chrono::steady_clock::duration keep_alive_timeout { };
+    const std::string& server_header;
 
 };
 
@@ -228,46 +228,11 @@ auto create_tuple_from_types(const config_t& config) {
 
 template <typename router_t, typename config_t = none_config, typename global_state_tuple_t = std::tuple<>, typename thread_local_state_tuple_t = std::tuple<>>
 struct server {
-    const config_t& config { };
-    boost::asio::io_service io_service;
-    boost::asio::ip::tcp::acceptor acceptor;
-    boost::thread_group threadpool;
-    std::shared_ptr<connection> connection_instance;
-    router_t router_instance { };
-    
-    /* Shutdown related */
-    boost::posix_time::seconds graceful_shutdown_seconds { 0 };
-    bool is_shutting_down { false };
-    boost::asio::signal_set signals;
-    boost::asio::deadline_timer graceful_shutdown_timer;
-
-    std::chrono::steady_clock::duration keep_alive_timeout { };
-
-    size_t n_threads { 1 };
-
-    std::optional<global_state_tuple_t> global_state { };
-
-    template <typename ... global_state_ts>
-    using with_global_state = server<router_t, config_t, std::tuple<global_state_ts ...>, thread_local_state_tuple_t>;
-
-    template <typename ... thread_local_state_ts>
-    using with_thread_local_state = server<router_t, config_t, global_state_tuple_t, std::tuple<thread_local_state_ts ...>>;
-
-    template <typename new_config_t>
-    using with_config = server<router_t, new_config_t, global_state_tuple_t, thread_local_state_tuple_t>;
-
     using this_t = server<router_t, config_t, global_state_tuple_t, thread_local_state_tuple_t>;
 
     server(const std::string& host, const uint16_t port, const config_t& config = config_t { }) : 
         config { config },
         acceptor { io_service },
-        connection_instance { std::make_shared<connection>(io_service, [this] (request<std::string>& req, response<std::string>& resp) {
-            if (not router_instance.handle_request(req, resp, unwrap_ref(global_state), this->config)) {
-                resp.status_code = 404;
-                resp.body = "Not found";
-                std::cout << "No handler found for path: " << req.path << std::endl;
-            }
-        }) },
         signals(io_service, SIGINT, SIGTERM),
         graceful_shutdown_timer(io_service, graceful_shutdown_seconds)
     {
@@ -280,8 +245,6 @@ struct server {
         acceptor.listen();
 
         initialize_global_state();
-        FHTTP_LOG(INFO) << "Starting a server";
-        start_accept();
 
         signals.async_wait(
             boost::bind(&this_t::graceful_shutdown, this)
@@ -304,7 +267,6 @@ struct server {
     }
 
     void initialize_global_state() {
-        // initialize each part of global_state_tuple_t using the create_state templated function
         global_state = { create_tuple_from_types<global_state_tuple_t, config_t>(config) };
 
     }
@@ -317,11 +279,22 @@ struct server {
     }
 
     void start() {
+        initial_connection_instance();
+        
+        FHTTP_LOG(INFO) << "Starting a server";
+        start_accept();
+        
         for (std::size_t n = 0; n < n_threads; ++n) {
             threadpool.create_thread(
                 boost::bind(&boost::asio::io_service::run, &io_service)
             );
         }
+    }
+
+    void initial_connection_instance() {
+        connection_instance = std::make_shared<connection>(io_service, [this] (request<std::string>& req, response<std::string>& resp) {
+            return router_instance.handle_request(req, resp, unwrap_ref(global_state), this->config);
+        }, server_header);
     }
 
     void handle_accept(const boost::system::error_code& e) {
@@ -333,9 +306,7 @@ struct server {
             connection_instance->set_keep_alive_timeout(keep_alive_timeout);
             connection_instance->start();
         }
-        connection_instance = std::make_shared<connection>(io_service, [this] (request<std::string>& req, response<std::string>& resp) {
-            return router_instance.handle_request(req, resp, unwrap_ref(global_state), this->config);
-        });
+        initial_connection_instance();
         start_accept();
     }
 
@@ -354,6 +325,32 @@ struct server {
     void set_keep_alive_timeout(std::chrono::steady_clock::duration timeout) {
         keep_alive_timeout = timeout;
     }
+
+    void set_server_header(const std::string& header) {
+        server_header = header;
+    }
+
+private:
+    const config_t& config { };
+    boost::asio::io_service io_service;
+    boost::asio::ip::tcp::acceptor acceptor;
+    boost::thread_group threadpool;
+    std::shared_ptr<connection> connection_instance;
+    router_t router_instance { };
+    
+    /* Shutdown related */
+    boost::posix_time::seconds graceful_shutdown_seconds { 0 };
+    bool is_shutting_down { false };
+    boost::asio::signal_set signals;
+    boost::asio::deadline_timer graceful_shutdown_timer;
+
+    std::chrono::steady_clock::duration keep_alive_timeout { };
+
+    size_t n_threads { 1 };
+
+    std::optional<global_state_tuple_t> global_state { };
+
+    std::string server_header = "FHTTP/0.1";
 };
 
 }

@@ -36,6 +36,23 @@ struct fake_sql_manager {
      
         return profile { name, name + "@example.com" };
     }
+
+    std::vector<profile> get_all_profiles() {
+        // Simulate reading from a database
+        return {
+            { "User1", "user1@gmail.com" },
+            { "User2", "user2@gmail.com" },
+            { "User3", "user3@gmail.com" },
+            { "User4", "user4@gmail.com" },
+            { "User5", "user5@gmail.com" },
+            { "User6", "user6@gmail.com" },
+            { "User7", "user7@gmail.com" },
+            { "User8", "user8@gmail.com" },
+            { "User9", "user9@gmail.com" },
+            { "User10", "user10@gmail.com" }
+        };
+    }
+
 };
 
 using views_shared_state = std::tuple<example_states::fake_redis_manager, example_states::fake_sql_manager>;

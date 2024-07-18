@@ -37,6 +37,7 @@ namespace example_fields {
     using profile_data = fhttp::datalib::data_pack<name, email>;
 
     using profile = fhttp::datalib::field<"profile", profile_data, "User Profile">;
+    using profiles = fhttp::datalib::field<"profiles", std::vector<profile_data>, "User Profiles">;
 
     namespace input {
         using name = fhttp::datalib::field<"name", std::string, "User Name">;
