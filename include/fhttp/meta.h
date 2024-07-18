@@ -19,17 +19,11 @@ struct label_literal {
     char value[N] = { 0 };
 };
 
+template<typename Test, template<typename...> class Ref>
+struct is_specialization : std::false_type {};
 
-// template <typename T>
-// inline T from_string(const std::string&) {
-//     return T { };
-// }
-
-// template <>
-// inline std::string from_string<std::string>(const std::string& str) {
-//     return str;
-// }
-
+template<template<typename...> class Ref, typename... Args>
+struct is_specialization<Ref<Args...>, Ref>: std::true_type {};
 
 // Helper template to transform a type T to a reference type T&
 template<typename T>

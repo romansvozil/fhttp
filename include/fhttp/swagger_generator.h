@@ -1,6 +1,7 @@
 #pragma once
 
 #include "http_server.h"
+#include "meta.h"
 
 #include <boost/json.hpp>
 
@@ -17,21 +18,7 @@ std::string to_lower(const std::string& str) {
 
 }
 
-template<typename Test, template<typename...> class Ref>
-struct is_specialization : std::false_type {};
-
-template<template<typename...> class Ref, typename... Args>
-struct is_specialization<Ref<Args...>, Ref>: std::true_type {};
-
-
-/*
-    TODO:
-    - Add support for arrays
-*/
-
 /* === FORWARD DECLERATIONS generate_content_definition === */
-// template <typename inner_vector_t>
-// inline void generate_content_definition(boost::json::object& schema, const std::vector<inner_vector_t>&);
 
 template <typename inner_json_t>
 inline void generate_content_definition(boost::json::object& schema, const json<inner_json_t>&);

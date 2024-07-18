@@ -1,6 +1,8 @@
 # F(ast)HTTP
 `fhttp` is as library that provides fairly simple interface for building HTTP based servers, it provides "auto" json de/serialization, swagger generation and much more!
 
+For examples check out [basic_http_server](examples/basic_http_server)
+
 # Notice
 `fhttp` is currently mostly just a POC and funny personal project
 
@@ -16,8 +18,8 @@
 
 # todo
 - tests
-- proper typed query params parsing (add it to swagger generation)
 - add list/optional/union support to data module & swagger
+- proper typed query params parsing (add it to swagger generation)
 - middlewares - probably using something like pre-handle request or wrap request
 ```cpp
 .. handler code. ..
@@ -55,3 +57,6 @@ void evaluate_request(fhttp::context& ctx, fhttp::request<std::string>& req, fht
 - compression (for now gzip/deflate)
 - try out some basic implementation of websockets (https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_servers)
 - cleanup unused code
+
+# Development
+- To compile this project you need to have installed boost with `filesystem regex thread chrono date_time json` libs 

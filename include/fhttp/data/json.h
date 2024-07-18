@@ -79,7 +79,6 @@ inline std::enable_if_t<has_fields<content_t>::value, std::optional<boost::json:
 
 } // namespace serialization
 
-#if 1 // TODO: Finish this
 namespace deserialization {
 
 template <typename content_t>
@@ -92,6 +91,16 @@ inline std::optional<content_t> from_json(const boost::json::value& json_value) 
         return std::make_optional<std::string>(json_value.as_string());
     } else if constexpr (std::is_same_v<content_t, bool>) {
         return { json_value.as_bool() };
+    } else if constexpr (is_specialization<content_t, std::vector>::value) {
+        content_t out_vector { };
+        const auto& json_array = json_value.as_array();
+
+        for (const auto& elem : json_array) {
+            if (const auto deserialized = from_json<typename content_t::value_type>(elem); deserialized) {
+                out_vector.push_back(*deserialized);
+            }
+        }
+
     } else {
         content_t data_pack_content;
 
@@ -141,7 +150,6 @@ inline std::optional<content_t> from_json(const boost::json::value& json_value) 
 // }
 
 } // namespace deserialization
-#endif
 
 
 } // namespace datalib

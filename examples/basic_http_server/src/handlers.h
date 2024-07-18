@@ -16,7 +16,7 @@ namespace example_views {
 using base_handler = fhttp::http_handler<server_config, example_states::views_shared_state>;
 
 struct profile_post_handler: public base_handler {
-    constexpr static const char* description = "Get profile";
+    constexpr static const char* description = "Create profile";
 
     example_states::fake_sql_manager& sql_manager;
 
@@ -24,6 +24,41 @@ struct profile_post_handler: public base_handler {
     using response_body_t = example_fields::v1::json_response<example_fields::profile>;
 
     profile_post_handler(const server_config& config, example_states::views_shared_state state)
+        : base_handler(config, state)
+        , sql_manager(std::get<example_states::fake_sql_manager>(state)) {}
+
+    void handle(
+        const fhttp::request<request_body_t>& request,
+        fhttp::response<response_body_t>& response
+    ) {
+        const auto user_name = request.body->get<example_fields::input::name>();
+        const auto user = sql_manager.create_profile(user_name);
+
+        if (!user) {
+            response.status_code = fhttp::STATUS_CODE_NOT_FOUND;
+            response.body->set<example_fields::status>(fhttp::STATUS_CODE_NOT_FOUND);
+            return;
+        }
+
+        auto& result = response.body->get<example_fields::profile>();
+
+        result.set<example_fields::name>(user->name);
+        result.set<example_fields::email>(user->email);
+
+        response.headers[fhttp::HEADER_CONTENT_TYPE] = "application/json";
+        response.body->set<example_fields::status>(fhttp::STATUS_CODE_OK);
+    }
+};
+
+struct profile_post_multiple_handler: public base_handler {
+    constexpr static const char* description = "Create profiles";
+
+    example_states::fake_sql_manager& sql_manager;
+
+    using request_body_t = fhttp::json<example_fields::profile_request>;
+    using response_body_t = example_fields::v1::json_response<example_fields::profiles>;
+
+    profile_post_multiple_handler(const server_config& config, example_states::views_shared_state state)
         : base_handler(config, state)
         , sql_manager(std::get<example_states::fake_sql_manager>(state)) {}
 
