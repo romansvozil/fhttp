@@ -52,10 +52,21 @@ struct fake_sql_manager {
             { "User10", "user10@gmail.com" }
         };
     }
-
 };
 
-using views_shared_state = std::tuple<example_states::fake_redis_manager, example_states::fake_sql_manager>;
+struct fake_prometheus_manager {
+    void increment_request_count(
+        const std::string& path,
+        const std::string& method,
+        int status_code
+    ) {
+        FHTTP_UNUSED(path);
+        FHTTP_UNUSED(method);
+        FHTTP_UNUSED(status_code);
+    }
+};
+
+using views_shared_state = std::tuple<example_states::fake_redis_manager, example_states::fake_sql_manager, example_states::fake_prometheus_manager>;
 
 } // namespace example_states
 

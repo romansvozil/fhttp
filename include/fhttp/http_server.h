@@ -40,23 +40,31 @@ const char* get_handler_description() {
     }
 }
 
+struct handler_context {
+    std::function<void()> handle_request;
+};
+
 template <
     typename config_t,
     typename shared_state_t = std::tuple<>
 >
 struct http_handler {
-    using original_shared_state_t = shared_state_t;
-    using references_to_original_shared_state_t = tuple_of_references_t<original_shared_state_t>;
+    using shared_state_type = shared_state_t;
+    using config_type = config_t;
 
-    references_to_original_shared_state_t global_state;
-    const config_t& config;
+    shared_state_type& global_state;
+    const config_type& config;
 
     http_handler() = delete;
 
-    http_handler(const config_t& config, references_to_original_shared_state_t global_state)
+    http_handler(const config_type& config, shared_state_type& global_state)
         : global_state(global_state)
         , config(config)
     {
+    }
+
+    void evaluate_request(fhttp::handler_context& ctx, fhttp::request<std::string>&, fhttp::response<std::string>&) {
+        ctx.handle_request();
     }
 
 };
@@ -77,15 +85,10 @@ struct route {
 
         req.url_matches = regex_groups;
 
-        auto filtered_global_state_refs = filter_and_remove_ignores<
-            global_data_t, 
-            typename handler_type::references_to_original_shared_state_t
-        >(global_data);
-
         using handler_definition = handler_type_definition<&handler_type::handle>;
 
         FHTTP_LOG(INFO) << "Calling a handler with description: " << get_handler_description<handler_type>();
-        handler_type handler {config, filtered_global_state_refs};
+        handler_type handler {config, global_data};
 
         std::remove_reference_t<typename handler_definition::response_t> converted_response {};
         const auto converted_request = convert_request<
@@ -93,7 +96,13 @@ struct route {
             typename std::remove_reference_t<typename handler_definition::request_t>::query_params_type
         >(req);
 
-        handler.handle(converted_request, converted_response);
+        handler_context handler_ctx {
+            [&handler, &converted_request, &converted_response] {
+                handler.handle(converted_request, converted_response);
+            }
+        };
+
+        handler.evaluate_request(handler_ctx, req, resp);
 
         resp = convert_to_string_response(converted_response);
         return true;

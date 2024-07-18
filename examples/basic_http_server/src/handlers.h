@@ -13,7 +13,21 @@ namespace example_views {
 
 
 /// @brief Create base of our handlers with the server configuration
-using base_handler = fhttp::http_handler<server_config, example_states::views_shared_state>;
+struct handler_with_metrics: fhttp::http_handler<server_config, example_states::views_shared_state> {
+    example_states::fake_prometheus_manager& prometheus_manager;
+
+    handler_with_metrics(const server_config& config, example_states::views_shared_state& state)
+        : fhttp::http_handler<server_config, example_states::views_shared_state>(config, state)
+        , prometheus_manager(std::get<example_states::fake_prometheus_manager>(state)) {}
+
+    void evaluate_request(fhttp::handler_context& ctx, fhttp::request<std::string>& req, fhttp::response<std::string>& res) {
+        using super = fhttp::http_handler<server_config, example_states::views_shared_state>;
+        super::evaluate_request(ctx, req, res);
+        prometheus_manager.increment_request_count(req.path, fhttp::method_to_string(req.method), res.status_code);
+    }
+};
+
+using base_handler = handler_with_metrics;
 
 struct profile_post_handler: public base_handler {
     constexpr static const char* description = "Create profile";
@@ -23,42 +37,7 @@ struct profile_post_handler: public base_handler {
     using request_body_t = fhttp::json<example_fields::profile_request>;
     using response_body_t = example_fields::v1::json_response<example_fields::profile>;
 
-    profile_post_handler(const server_config& config, example_states::views_shared_state state)
-        : base_handler(config, state)
-        , sql_manager(std::get<example_states::fake_sql_manager>(state)) {}
-
-    void handle(
-        const fhttp::request<request_body_t>& request,
-        fhttp::response<response_body_t>& response
-    ) {
-        const auto user_name = request.body->get<example_fields::input::name>();
-        const auto user = sql_manager.create_profile(user_name);
-
-        if (!user) {
-            response.status_code = fhttp::STATUS_CODE_NOT_FOUND;
-            response.body->set<example_fields::status>(fhttp::STATUS_CODE_NOT_FOUND);
-            return;
-        }
-
-        auto& result = response.body->get<example_fields::profile>();
-
-        result.set<example_fields::name>(user->name);
-        result.set<example_fields::email>(user->email);
-
-        response.headers[fhttp::HEADER_CONTENT_TYPE] = "application/json";
-        response.body->set<example_fields::status>(fhttp::STATUS_CODE_OK);
-    }
-};
-
-struct profile_post_multiple_handler: public base_handler {
-    constexpr static const char* description = "Create profiles";
-
-    example_states::fake_sql_manager& sql_manager;
-
-    using request_body_t = fhttp::json<example_fields::profile_request>;
-    using response_body_t = example_fields::v1::json_response<example_fields::profiles>;
-
-    profile_post_multiple_handler(const server_config& config, example_states::views_shared_state state)
+    profile_post_handler(const server_config& config, example_states::views_shared_state& state)
         : base_handler(config, state)
         , sql_manager(std::get<example_states::fake_sql_manager>(state)) {}
 
@@ -93,7 +72,7 @@ struct get_all_profiles_handler: public base_handler {
     using request_body_t = std::string;
     using response_body_t = example_fields::v1::json_response<example_fields::profiles>;
 
-    get_all_profiles_handler(const server_config& config, example_states::views_shared_state state)
+    get_all_profiles_handler(const server_config& config, example_states::views_shared_state& state)
         : base_handler(config, state)
         , sql_manager(std::get<example_states::fake_sql_manager>(state)) {}
 
@@ -128,7 +107,7 @@ struct echo_handler: public base_handler {
 
     constexpr static const char* description = "Echo handler";
 
-    echo_handler(const server_config& config, example_states::views_shared_state state)
+    echo_handler(const server_config& config, example_states::views_shared_state& state)
         : base_handler(config, state) {}
 
     void handle(const request_t& request, fhttp::response<fhttp::json<example_fields::response_data>>& response) {
@@ -142,7 +121,7 @@ struct hello_handler: public base_handler {
 
     constexpr static const char* description = "Echo handler";
 
-    hello_handler(const server_config& config, example_states::views_shared_state state)
+    hello_handler(const server_config& config, example_states::views_shared_state& state)
         : base_handler(config, state) {}
 
     void handle(const request_t&, fhttp::response<fhttp::json<example_fields::response_data>>& response) {
@@ -152,7 +131,7 @@ struct hello_handler: public base_handler {
 };
 
 struct static_files_handler: public base_handler {
-    static_files_handler(const server_config& config, example_states::views_shared_state state)
+    static_files_handler(const server_config& config, example_states::views_shared_state& state)
         : base_handler(config, state) {}
 
     constexpr static const char* description = "Static files handler";
@@ -195,7 +174,7 @@ private:
 };
 
 struct open_api_json_handler: public base_handler {
-    open_api_json_handler(const server_config& config, example_states::views_shared_state state)
+    open_api_json_handler(const server_config& config, example_states::views_shared_state& state)
         : base_handler(config, state) {}
 
     constexpr static const char* description = "Open API JSON handler";
