@@ -59,4 +59,10 @@ void evaluate_request(fhttp::context& ctx, fhttp::request<std::string>& req, fht
 - cleanup unused code
 
 # Development
-- To compile this project you need to have installed boost with `filesystem regex thread chrono date_time json` libs 
+- To compile this project you need to have installed boost with `filesystem regex thread chrono date_time json` libs
+
+```sh
+mkdir build
+cd build
+cmake .. && make
+```
